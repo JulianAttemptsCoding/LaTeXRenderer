@@ -18,6 +18,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install --with-deps chromium",
+    "sync:app": "node scripts/sync-app.mjs",
     "scan:secrets": "node scripts/scan-secrets.mjs . --include-dist",
     "verify": "npm run typecheck && npm run lint && npm run test && npm run build && npm run scan:secrets"
   },

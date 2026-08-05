@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "buildId": "d18c4d1a84a2187d",
+  "createdAt": "2026-08-05T14:55:13.521Z",
+  "entry": "app.js",
+  "styles": [
+    "app.css"
+  ],
+  "worker": "editor.worker.js",
+  "assets": [
+    {
+      "path": "app.css",
+      "sha256": "c3533e94fca0ef20e6eb7b41a99e312778e6974f6ff7556c59c79faa1623945b",
+      "size": 77302,
+      "contentType": "text/css"
+    },
+    {
+      "path": "app.js",
+      "sha256": "2a050f104b0b6db75242ff3815b68d9502b521808d66ebb1525b547a57a1031b",
+      "size": 2538711,
+      "contentType": "text/javascript"
+    },
+    {
+      "path": "editor.worker.js",
+      "sha256": "93df015a353923df3402d19cc553c24bd6bafab965290948d01022f6edbc4805",
+      "size": 231482,
+      "contentType": "text/javascript"
+    }
+  ]
+}

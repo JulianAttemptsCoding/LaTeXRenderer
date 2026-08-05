@@ -188,6 +188,23 @@ p {
   border-color: var(--fg-muted);
 }
 
+/* Google renders its own button into #google-signin-host; the plain button underneath is
+   the fallback for when their script is blocked. */
+.signin-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 44px;
+}
+
+.signin-slot > div:empty + .btn {
+  /* If Google never drew anything, the fallback carries the weight. */
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: transparent;
+}
+
 .g-mark {
   display: grid;
   place-items: center;

@@ -1,18 +1,19 @@
 /**
  * UnderRock public shell.
  *
- * This file is served from GitHub Pages, so every byte of it is public. It therefore
- * contains no secret, makes no authorization decision of its own, and cannot be tricked
- * into revealing the editor application. Its whole job is:
+ * Served from GitHub Pages, so every byte of it is public. It holds no secret and, in
+ * Supabase mode, makes no authorisation decision of its own.
  *
- *   1. establish a Google session through Supabase Auth (PKCE),
- *   2. ask the server whether that user currently holds a site-access grant,
- *   3. if not, forward a password attempt to the server and let the server decide,
- *   4. once the server says yes, fetch the protected bundle, verify its hashes, run it.
+ * Two modes, chosen automatically by src/config.ts:
  *
- * Editing the DOM, flipping a localStorage flag, or calling any function in here from the
- * console cannot manufacture a grant. Step 4 fails without one, because get-protected-app
- * checks the grant server-side before it will sign a single URL.
+ *   DIRECT    Google sign-in happens in the browser; the editor is served from this same
+ *             site. Nothing external to configure beyond a Google Client ID. There is no
+ *             server, so there is no server-enforced gate -- see docs/SECURITY_MODEL.md.
+ *
+ *   SUPABASE  Sign-in via Supabase Auth (PKCE), then a server-checked shared-password
+ *             gate, then the editor from a private bucket behind five-minute signed URLs.
+ *
+ * Both modes verify the SHA-256 of every asset before executing it.
  */
 
 import "./styles.css";
@@ -25,14 +26,24 @@ import {
   supabase,
 } from "./lib/supabase";
 import {
+  clearSession,
+  loadGis,
+  promptOneTap,
+  renderSignInButton,
+  storedSession,
+  type GoogleProfile,
+} from "./lib/googleAuth";
+import {
   IntegrityError,
   clearProtectedAppCache,
+  localManifest,
   startProtectedApp,
   stopProtectedApp,
   type ProtectedManifest,
 } from "./lib/protectedApp";
 import { mount } from "./lib/dom";
 import {
+  GOOGLE_BUTTON_ID,
   errorView,
   landingView,
   loadingView,
@@ -45,6 +56,7 @@ import {
 const root = document.getElementById("root");
 if (!root) throw new Error("#root is missing from index.html");
 
+const DIRECT = config.mode === "direct";
 let appRunning = false;
 
 function render(node: HTMLElement): void {
@@ -53,30 +65,77 @@ function render(node: HTMLElement): void {
 }
 
 // ---------------------------------------------------------------------------
-// actions
+// landing
+// ---------------------------------------------------------------------------
+
+function showLanding(error?: string | null): void {
+  render(landingView({ onSignIn: () => void beginSignIn() }, error, { renderGoogleButton: DIRECT }));
+
+  if (!DIRECT) return;
+
+  // Let Google draw its own button into the slot the view reserved. Google's branding
+  // rules require their button, and the popup will not open reliably from a synthetic click.
+  const host = document.getElementById(GOOGLE_BUTTON_ID);
+  if (!host) return;
+  void renderSignInButton(host, (profile, signInError) => {
+    if (profile) void afterDirectSignIn(profile);
+    else if (signInError) showLanding(signInError);
+  }).catch((err: unknown) => {
+    // The fallback button underneath still works, so this is informational.
+    console.warn("Google button could not render:", err);
+  });
+
+  void promptOneTap((profile) => {
+    if (profile) void afterDirectSignIn(profile);
+  });
+}
+
+async function beginSignIn(): Promise<void> {
+  if (!DIRECT) {
+    render(loadingView("Redirecting to Google"));
+    const { error } = await signInWithGoogle();
+    if (error) showLanding(error);
+    return;
+  }
+
+  // Direct mode: the popup must come from Google's own button. If the visitor clicked the
+  // fallback, re-render so Google can draw it, and say why.
+  try {
+    await loadGis();
+    showLanding("Use the Google button above to continue.");
+  } catch (err) {
+    showLanding(err instanceof Error ? err.message : String(err));
+  }
+}
+
+async function afterDirectSignIn(profile: GoogleProfile): Promise<void> {
+  render(loadingView(`Signed in as ${profile.email}`));
+  await openWorkspace();
+}
+
+// ---------------------------------------------------------------------------
+// sign out
 // ---------------------------------------------------------------------------
 
 async function doSignOut(): Promise<void> {
   render(loadingView("Signing out"));
-  try {
-    // Best effort: end the grant server-side too, so a shared machine cannot resume.
-    await callFunction(FUNCTIONS.revokeAccess);
-  } catch {
-    /* Signing out must succeed even if the network does not. */
+  if (!DIRECT) {
+    try {
+      await callFunction(FUNCTIONS.revokeAccess);
+    } catch {
+      /* Signing out must succeed even if the network does not. */
+    }
   }
   await stopProtectedApp();
-  await signOut();
+  clearSession();
+  if (!DIRECT) await signOut();
   // A reload is what actually reclaims whatever the editor bundle left behind.
   location.replace(config.basePath);
 }
 
-async function doSignIn(): Promise<void> {
-  render(loadingView("Redirecting to Google"));
-  const { error } = await signInWithGoogle();
-  if (error) {
-    render(landingView({ onSignIn: doSignIn }, error));
-  }
-}
+// ---------------------------------------------------------------------------
+// password gate (Supabase mode only)
+// ---------------------------------------------------------------------------
 
 interface AccessState {
   hasAccess: boolean;
@@ -105,14 +164,9 @@ async function submitPassword(email: string, password: string): Promise<void> {
     return;
   }
 
-  if (status === 401) {
-    // Deliberately vague: the server returns one body for wrong-password and for
-    // not-signed-in, and the shell does not invent a more specific message.
-    const session = await currentSession();
-    if (!session) {
-      render(landingView({ onSignIn: doSignIn }, "Your session expired. Please sign in again."));
-      return;
-    }
+  if (status === 401 && !(await currentSession())) {
+    showLanding("Your session expired. Please sign in again.");
+    return;
   }
 
   render(
@@ -122,49 +176,79 @@ async function submitPassword(email: string, password: string): Promise<void> {
   );
 }
 
-async function openWorkspace(): Promise<void> {
-  render(loadingView("Checking your access"));
+// ---------------------------------------------------------------------------
+// workspace
+// ---------------------------------------------------------------------------
 
-  const manifestCall = await callFunction<ProtectedManifest>(FUNCTIONS.getApp);
-
-  if (manifestCall.status === 403) {
-    render(lockedOutView(null, doSignOut));
-    return;
+async function resolveManifest(): Promise<
+  { ok: true; manifest: ProtectedManifest } | { ok: false; node: HTMLElement }
+> {
+  if (DIRECT) {
+    try {
+      return { ok: true, manifest: await localManifest(config.basePath) };
+    } catch (err) {
+      return {
+        ok: false,
+        node: errorView("Editor not found", err instanceof Error ? err.message : String(err), {
+          onRetry: openWorkspace,
+          onSignOut: doSignOut,
+        }),
+      };
+    }
   }
-  if (manifestCall.status === 503) {
-    render(
-      errorView(
+
+  const call = await callFunction<ProtectedManifest>(FUNCTIONS.getApp);
+  if (call.status === 403) return { ok: false, node: lockedOutView(null, doSignOut) };
+  if (call.status === 503) {
+    return {
+      ok: false,
+      node: errorView(
         "Nothing published yet",
-        "The editor application has not been uploaded to this Supabase project.\n\n" +
-          "The site owner needs to run the “Publish protected app” workflow in the\n" +
-          "texCompiler repository. See docs/DEPLOYMENT.md.",
+        "The editor has not been uploaded to this Supabase project.\n\n" +
+          "Run the “Publish protected app” workflow in texCompiler.\n" +
+          "See docs/DEPLOYMENT.md.",
         { onRetry: openWorkspace, onSignOut: doSignOut },
       ),
-    );
-    return;
+    };
   }
-  if (!manifestCall.data) {
-    render(
-      errorView("Could not start", manifestCall.error ?? "Unknown error.", {
+  if (!call.data) {
+    return {
+      ok: false,
+      node: errorView("Could not start", call.error ?? "Unknown error.", {
         onRetry: openWorkspace,
         onSignOut: doSignOut,
       }),
-    );
+    };
+  }
+  return { ok: true, manifest: call.data };
+}
+
+async function openWorkspace(): Promise<void> {
+  render(loadingView("Opening your workspace"));
+
+  const resolved = await resolveManifest();
+  if (!resolved.ok) {
+    render(resolved.node);
     return;
   }
 
-  const manifest = manifestCall.data;
+  const manifest = resolved.manifest;
+
+  // Hand the editor this deployment's Google Client ID so "Connect Drive" works out of the
+  // box. It is only a default -- Settings lets each person substitute their own, which is
+  // what removes the ten-test-user cap from Drive. See docs/GOOGLE_SETUP.md section B.
+  (window as unknown as Record<string, unknown>).__UNDERROCK_GOOGLE_CLIENT_ID__ =
+    config.googleClientId;
+  (window as unknown as Record<string, unknown>).__UNDERROCK_MODE__ = config.mode;
+
   render(progressView("Verifying the application", 0, manifest.assets.length));
 
   try {
     await startProtectedApp(manifest, {
-      onProgress: (done, total, path) => {
-        render(progressView(path, done, total));
-      },
+      onProgress: (done, total, path) => render(progressView(path, done, total)),
     });
     appRunning = true;
-    // The editor takes over the page from here. Clear the shell's own markup so the two
-    // cannot fight over layout.
+    // The editor takes over the page from here.
     root!.replaceChildren();
     root!.removeAttribute("aria-live");
   } catch (err) {
@@ -175,9 +259,9 @@ async function openWorkspace(): Promise<void> {
         errorView(
           "Refused to start",
           `${err.message}\n\n` +
-            "This means the files the server sent do not match the fingerprints it\n" +
-            "published for them. UnderRock will not execute code it cannot verify.\n" +
-            "Reload to try again; if it keeps happening, tell the site owner.",
+            "The files do not match the fingerprints published for them. UnderRock will not\n" +
+            "execute code it cannot verify. Reload to try again; if it keeps happening, the\n" +
+            "deployment is damaged.",
           { onRetry: () => location.reload(), onSignOut: doSignOut },
         ),
       );
@@ -204,15 +288,24 @@ async function boot(): Promise<void> {
 
   render(loadingView("Starting up"));
 
-  // detectSessionInUrl consumes the PKCE code, then the query string is stripped so a
-  // copied URL cannot carry authorization state around.
+  if (DIRECT) {
+    if (storedSession()) {
+      await openWorkspace();
+      return;
+    }
+    showLanding();
+    return;
+  }
+
+  // ---- Supabase mode -------------------------------------------------------
   const session = await currentSession();
   if (location.search.includes("code=") || location.hash.includes("access_token")) {
+    // Strip the PKCE code so a copied URL carries no authorisation state.
     history.replaceState({}, "", config.basePath);
   }
 
   if (!session) {
-    render(landingView({ onSignIn: doSignIn }));
+    showLanding();
     return;
   }
 
@@ -220,7 +313,7 @@ async function boot(): Promise<void> {
 
   if (access.status === 401) {
     await signOut();
-    render(landingView({ onSignIn: doSignIn }, "Your session expired. Please sign in again."));
+    showLanding("Your session expired. Please sign in again.");
     return;
   }
   if (!access.data) {
@@ -234,7 +327,7 @@ async function boot(): Promise<void> {
   }
 
   if (!access.data.hasAccess) {
-    // A grant that has lapsed means the cached bundle must go as well.
+    // A lapsed grant means the cached bundle must go as well.
     await clearProtectedAppCache();
     const email = session.user.email ?? "your Google account";
     render(
@@ -250,21 +343,20 @@ async function boot(): Promise<void> {
 }
 
 // React to sign-out happening in another tab.
-supabase().auth.onAuthStateChange((event) => {
-  if (event === "SIGNED_OUT" && appRunning) {
-    location.replace(config.basePath);
-  }
-});
+if (!DIRECT) {
+  supabase().auth.onAuthStateChange((event) => {
+    if (event === "SIGNED_OUT" && appRunning) location.replace(config.basePath);
+  });
+}
 
-// The editor asks the shell to end the session through this event rather than importing
+// The editor asks the shell to end the session through these events rather than importing
 // shell code, which keeps the two bundles independent.
-window.addEventListener("underrock:sign-out", () => {
-  void doSignOut();
-});
+window.addEventListener("underrock:sign-out", () => void doSignOut());
 window.addEventListener("underrock:lock", () => {
   void (async () => {
-    await callFunction(FUNCTIONS.revokeAccess);
+    if (!DIRECT) await callFunction(FUNCTIONS.revokeAccess);
     await stopProtectedApp();
+    clearSession();
     location.replace(config.basePath);
   })();
 });

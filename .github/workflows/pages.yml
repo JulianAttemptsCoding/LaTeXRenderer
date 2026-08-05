@@ -71,40 +71,64 @@ jobs:
 
       - run: npm ci
 
-      # Checked BEFORE building, so a missing variable costs two seconds and gives a clear
-      # message rather than producing an unusable bundle and failing afterwards.
-      - name: Refuse to build without the Supabase configuration
+      # The editor must be bundled for direct mode. It is committed under public/app/ by
+      # `npm run sync:app`, because texCompiler is private and this public workflow has no
+      # token to check it out. A missing bundle would deploy a site that signs you in and
+      # then cannot open anything, so it fails here instead.
+      - name: The editor bundle must be present
         run: |
-          missing=0
-          if [ -z "${{ vars.VITE_SUPABASE_URL }}" ]; then
-            echo "::error title=Missing repository variable::VITE_SUPABASE_URL is not set."
-            missing=1
-          fi
-          if [ -z "${{ vars.VITE_SUPABASE_ANON_KEY }}" ]; then
-            echo "::error title=Missing repository variable::VITE_SUPABASE_ANON_KEY is not set."
-            missing=1
-          fi
-          if [ "$missing" = "1" ]; then
+          if [ ! -f public/app/manifest.json ]; then
             {
-              echo "## Deployment is not configured yet"
+              echo "## The editor bundle is missing"
               echo
-              echo "Set these two **repository variables** (not secrets — both values are public):"
+              echo 'Run this in the LaTeXRenderer checkout, against a built texCompiler:'
               echo
-              echo "1. Settings → Secrets and variables → Actions → **Variables** tab"
-              echo "2. **New repository variable** for each:"
-              echo
-              echo "| Name | Where to find it |"
-              echo "|---|---|"
-              echo "| \`VITE_SUPABASE_URL\` | Supabase → Project Settings → API → Project URL |"
-              echo "| \`VITE_SUPABASE_ANON_KEY\` | the same page, the **anon / public** key — *not* service_role |"
-              echo
-              echo "Then re-run this workflow."
-              echo
-              echo "Also required once: Settings → Pages → Source = **GitHub Actions**."
+              echo '```'
+              echo 'cd ../texCompiler && node scripts/build-protected-app.mjs'
+              echo 'cd ../LaTeXRenderer && npm run sync:app && git add public/app && git commit'
+              echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error title=Missing editor bundle::public/app/manifest.json not found."
             exit 1
           fi
-          echo "configuration present"
+          node -e "
+            const m = require('./public/app/manifest.json');
+            const fs = require('fs'), crypto = require('crypto');
+            for (const a of m.assets) {
+              const b = fs.readFileSync('public/app/' + a.path);
+              const d = crypto.createHash('sha256').update(b).digest('hex');
+              if (d !== a.sha256) {
+                console.error('::error::' + a.path + ' does not match its manifest digest');
+                process.exit(1);
+              }
+            }
+            console.log('editor bundle ' + m.buildId + ', ' + m.assets.length + ' assets, digests verified');
+          "
+
+      # Supabase is OPTIONAL. Without it the site runs in direct mode: Google sign-in in
+      # the browser, editor served from this site. With it, the server-enforced
+      # shared-password gate applies. Either is a valid deployment, so a missing variable
+      # is reported and the build continues rather than failing.
+      - name: Report which mode this deploy will use
+        run: |
+          if [ -n "${{ vars.VITE_SUPABASE_URL }}" ] && [ -n "${{ vars.VITE_SUPABASE_ANON_KEY }}" ]; then
+            echo "MODE=supabase" >> "$GITHUB_ENV"
+            echo "### Deploying in **Supabase mode** — server-enforced password gate active." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "MODE=direct" >> "$GITHUB_ENV"
+            {
+              echo "### Deploying in **direct mode**"
+              echo
+              echo "Google sign-in runs in the browser and the editor is served from this site."
+              echo "Everything works, and nothing further is required."
+              echo
+              echo "There is **no server-enforced gate** in this mode: the bundle is public and"
+              echo "the sign-in cannot be verified server-side. To add one, set the repository"
+              echo "variables \`VITE_SUPABASE_URL\` and \`VITE_SUPABASE_ANON_KEY\` (Settings →"
+              echo "Secrets and variables → Actions → **Variables**) and re-run. See"
+              echo "docs/SECURITY_MODEL.md."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Build the shell
         run: npm run build

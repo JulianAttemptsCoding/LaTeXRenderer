@@ -40,6 +40,53 @@ export interface ProtectedManifest {
   assets: ManifestAsset[];
 }
 
+/**
+ * Builds a manifest for DIRECT mode, where the editor ships alongside the shell on this
+ * same GitHub Pages site instead of coming from a private bucket.
+ *
+ * The integrity check is kept, and it is not theatre: `app/manifest.json` is generated at
+ * build time from the actual bytes, so a corrupted or truncated asset -- a bad deploy, a
+ * proxy that mangled a response, a partially-cached file -- is caught before anything
+ * executes. What it cannot do in this mode is prove the files were not *deliberately*
+ * replaced, because an attacker who can rewrite the assets can rewrite the manifest beside
+ * them. That difference is the point of Supabase mode and is documented as such.
+ */
+export async function localManifest(basePath: string): Promise<ProtectedManifest> {
+  const root = `${basePath.replace(/\/+$/, "")}/app/`;
+  const response = await fetch(`${root}manifest.json`, { cache: "no-cache" });
+  if (!response.ok) {
+    throw new Error(
+      `The editor is not bundled with this site (HTTP ${response.status} for ${root}manifest.json).\n\n` +
+        `Run "npm run sync:app" in the LaTeXRenderer repository against a built texCompiler, ` +
+        `then redeploy.`,
+    );
+  }
+
+  const manifest = (await response.json()) as {
+    buildId: string;
+    entry: string;
+    styles: string[];
+    worker: string | null;
+    assets: Array<{ path: string; sha256: string; size: number; contentType: string }>;
+  };
+
+  return {
+    ok: true,
+    buildId: manifest.buildId,
+    entry: manifest.entry,
+    styles: manifest.styles ?? [],
+    worker: manifest.worker ?? null,
+    expiresInSeconds: 0,
+    grantExpiresAt: "",
+    assets: manifest.assets.map((asset) => {
+      if (asset.path.includes("..") || asset.path.startsWith("/")) {
+        throw new Error(`Refusing an unsafe manifest path: ${asset.path}`);
+      }
+      return { ...asset, url: root + asset.path };
+    }),
+  };
+}
+
 export class IntegrityError extends Error {
   constructor(
     readonly assetPath: string,

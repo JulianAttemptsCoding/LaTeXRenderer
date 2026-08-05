@@ -83,13 +83,34 @@ export interface LandingHandlers {
   onSignIn: () => void;
 }
 
-export function landingView(handlers: LandingHandlers, error?: string | null): HTMLElement {
-  const button = el(
-    "button",
-    { class: "btn btn-primary", type: "button", onclick: handlers.onSignIn },
-    el("span", { class: "g-mark", "aria-hidden": "true" }, "G"),
-    "Continue with Google",
-  );
+/** The node Google Identity Services renders its own button into, in direct mode. */
+export const GOOGLE_BUTTON_ID = "google-signin-host";
+
+export function landingView(
+  handlers: LandingHandlers,
+  error?: string | null,
+  options: { renderGoogleButton?: boolean } = {},
+): HTMLElement {
+  // In direct mode Google renders its own button, which its branding rules require and
+  // which is also the only reliable way to open the popup. A fallback button is kept
+  // underneath so the page is never a dead end if the script is blocked.
+  const button = options.renderGoogleButton
+    ? el(
+        "div",
+        { class: "signin-slot" },
+        el("div", { id: GOOGLE_BUTTON_ID }),
+        el(
+          "button",
+          { class: "btn btn-quiet", type: "button", onclick: handlers.onSignIn },
+          "Continue with Google",
+        ),
+      )
+    : el(
+        "button",
+        { class: "btn btn-primary", type: "button", onclick: handlers.onSignIn },
+        el("span", { class: "g-mark", "aria-hidden": "true" }, "G"),
+        "Continue with Google",
+      );
 
   return shell(
     wordmark(),
