@@ -21,3 +21,6 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 *.swp
+
+# Playwright JSON reporter output
+pw.json
