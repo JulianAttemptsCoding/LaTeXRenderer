@@ -1,0 +1,25 @@
+# The built editor is a byte-exact artifact whose SHA-256 is recorded in
+# public/app/manifest.json and verified in the browser before a single byte executes.
+#
+# Git's automatic line-ending conversion MUST NOT touch it. With core.autocrlf=true (the
+# Windows default) a re-clone would rewrite every LF to CRLF, changing the bytes, breaking
+# every digest, and the site would show "Refused to start" with no obvious cause. Marking
+# these paths binary disables conversion in both directions, on every platform.
+public/app/** -text -diff
+
+# Everything else may be normalised to LF in the repository and checked out natively.
+* text=auto eol=lf
+
+# Genuinely binary types, listed so no future rule can catch them.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.zip binary
+*.gz binary
+*.wasm binary
