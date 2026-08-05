@@ -79,7 +79,7 @@ jobs:
           # because every table and bucket is behind RLS. See docs/SECURITY_MODEL.md.
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
-          VITE_BASE_PATH: /UnderRock/
+          VITE_BASE_PATH: /LaTeXRenderer/
 
       - name: Fail if the build was not configured
         run: |
@@ -135,7 +135,7 @@ jobs:
       - name: The published site must serve HTML and its assets
         run: |
           set -euo pipefail
-          BASE="https://julianattemptscoding.github.io/UnderRock/"
+          BASE="https://julianattemptscoding.github.io/LaTeXRenderer/"
 
           echo "Waiting for the CDN to pick up the new deploy..."
           for attempt in 1 2 3 4 5 6; do
@@ -155,7 +155,7 @@ jobs:
           echo "$body" | grep -q 'id="root"' \
             || { echo "::error::index.html did not contain #root"; exit 1; }
 
-          asset=$(echo "$body" | grep -oE '/UnderRock/assets/shell-[A-Za-z0-9_-]+\.js' | head -1)
+          asset=$(echo "$body" | grep -oE '/LaTeXRenderer/assets/shell-[A-Za-z0-9_-]+\.js' | head -1)
           if [ -z "$asset" ]; then
             echo "::error::No shell bundle referenced in index.html"
             exit 1

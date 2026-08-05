@@ -31,7 +31,7 @@ function readEnv(name: string): string {
 function build(): AppConfig {
   const supabaseUrl = readEnv("VITE_SUPABASE_URL").replace(/\/+$/, "");
   const supabaseAnonKey = readEnv("VITE_SUPABASE_ANON_KEY");
-  const basePath = readEnv("VITE_BASE_PATH") || "/UnderRock/";
+  const basePath = readEnv("VITE_BASE_PATH") || "/LaTeXRenderer/";
 
   const problems: string[] = [];
   if (!supabaseUrl) problems.push("VITE_SUPABASE_URL is not set");

@@ -127,6 +127,13 @@ p {
   text-wrap: pretty;
 }
 
+.mission {
+  font-size: 1.05rem;
+  font-weight: 550;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
 .muted {
   color: var(--fg-muted);
 }

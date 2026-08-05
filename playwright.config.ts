@@ -23,7 +23,7 @@ export default defineConfig({
   expect: { timeout: 7_000 },
 
   use: {
-    baseURL: "http://localhost:4173/UnderRock/",
+    baseURL: "http://localhost:4173/LaTeXRenderer/",
     trace: "on-first-retry",
     screenshot: "only-on-failure",
   },
@@ -35,7 +35,7 @@ export default defineConfig({
 
   webServer: {
     command: "npm run build && npm run preview",
-    url: "http://localhost:4173/UnderRock/",
+    url: "http://localhost:4173/LaTeXRenderer/",
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
     env: {

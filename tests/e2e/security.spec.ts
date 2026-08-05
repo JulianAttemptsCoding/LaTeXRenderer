@@ -240,10 +240,10 @@ test.describe("bundle integrity", () => {
 });
 
 test.describe("GitHub Pages base path", () => {
-  test("the app is served under /UnderRock/ and its assets resolve", async ({ page }) => {
+  test("the app is served under /LaTeXRenderer/ and its assets resolve", async ({ page }) => {
     const failures: string[] = [];
     page.on("response", (r) => {
-      if (r.status() >= 400 && r.url().includes("/UnderRock/")) failures.push(r.url());
+      if (r.status() >= 400 && r.url().includes("/LaTeXRenderer/")) failures.push(r.url());
     });
     await page.goto("./");
     await expect(page.getByRole("button", { name: /continue with google/i })).toBeVisible();

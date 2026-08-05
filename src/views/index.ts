@@ -21,7 +21,7 @@ function footer(): HTMLElement {
       el(
         "a",
         {
-          href: "https://github.com/JulianAttemptsCoding/UnderRock",
+          href: "https://github.com/JulianAttemptsCoding/LaTeXRenderer",
           rel: "noopener noreferrer",
           target: "_blank",
         },
@@ -31,7 +31,7 @@ function footer(): HTMLElement {
       el(
         "a",
         {
-          href: "https://github.com/JulianAttemptsCoding/UnderRock/blob/main/docs/PRIVACY.md",
+          href: "https://github.com/JulianAttemptsCoding/LaTeXRenderer/blob/main/docs/PRIVACY.md",
           rel: "noopener noreferrer",
           target: "_blank",
         },
@@ -52,8 +52,9 @@ function shell(...children: Slot[]): HTMLElement {
 export function loadingView(message = "Starting up"): HTMLElement {
   return shell(
     wordmark(),
+    el("p", { class: "mission" }, "Making LaTeX free and open."),
     el("div", { class: "spinner", role: "status", "aria-label": message }),
-    el("p", { class: "muted" }, message + "…"),
+    el("p", { class: "muted small" }, message + "…"),
   );
 }
 
@@ -92,29 +93,29 @@ export function landingView(handlers: LandingHandlers, error?: string | null): H
 
   return shell(
     wordmark(),
-    el("h1", {}, "A quiet place to write LaTeX"),
+    el("h1", {}, "Make LaTeX free and open"),
     el(
       "p",
       { class: "lede" },
-      "Write together in the browser. Compile on your own machine. Keep your documents " +
-        "in this browser, in a local folder, or in your own Google Drive — whichever you prefer.",
+      "Good writing tools should not sit behind a subscription. UnderRock is a full " +
+        "LaTeX workspace that costs nothing to run and nothing to use — because the " +
+        "editor lives in your browser and the typesetting happens on your own computer.",
     ),
     error ? el("div", { class: "alert alert-error", role: "alert" }, error) : null,
     button,
     el(
       "p",
       { class: "muted small" },
-      "Sign-in is limited to people the site owner has added. UnderRock asks Google only " +
-        "for your name, email address, and profile picture. It never sees your password, " +
-        "and it does not request access to your files at sign-in.",
+      "We ask Google only for your name, email, and picture. Never your password, " +
+        "and never your files.",
     ),
     el(
       "ul",
       { class: "feature-list" },
-      el("li", {}, "Real-time collaborative editing"),
-      el("li", {}, "pdfLaTeX, XeLaTeX and LuaLaTeX on your own computer"),
-      el("li", {}, "Track changes, comments, and full project history"),
-      el("li", {}, "Nothing to pay, ever"),
+      el("li", {}, "Write together, in real time"),
+      el("li", {}, "Compile on your machine — nothing is uploaded"),
+      el("li", {}, "Your work stays yours: browser, folder, or your own Drive"),
+      el("li", {}, "No subscription. No trial. No limits."),
     ),
   );
 }
@@ -168,8 +169,8 @@ export function passwordView(
 
   return shell(
     wordmark(),
-    el("h1", {}, "One more step"),
-    el("p", { class: "muted" }, `Signed in as ${email}`),
+    el("h1", {}, "Enter the access password"),
+    el("p", { class: "muted small" }, `Signed in as ${email}`),
     state.lockedMinutes
       ? el(
           "div",

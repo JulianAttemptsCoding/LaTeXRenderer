@@ -3,11 +3,11 @@ import { copyFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 
 /**
- * The site is served from https://julianattemptscoding.github.io/UnderRock/, so every
- * emitted asset URL must carry the /UnderRock/ prefix. `base` is overridable for local
+ * The site is served from https://julianattemptscoding.github.io/LaTeXRenderer/, so every
+ * emitted asset URL must carry the /LaTeXRenderer/ prefix. `base` is overridable for local
  * preview and for anyone who forks the project under a different repository name.
  */
-const base = process.env.VITE_BASE_PATH ?? "/UnderRock/";
+const base = process.env.VITE_BASE_PATH ?? "/LaTeXRenderer/";
 
 /**
  * GitHub Pages serves 404.html for any path it cannot map to a file. Copying the built

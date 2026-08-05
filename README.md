@@ -1,6 +1,6 @@
 # UnderRock — public shell
 
-**https://julianattemptscoding.github.io/UnderRock/**
+**https://julianattemptscoding.github.io/LaTeXRenderer/**
 
 This repository is the small public front door to UnderRock, a free collaborative LaTeX
 environment for a team of up to ten people. It contains the landing page, Google sign-in,
@@ -110,7 +110,7 @@ auth configured and your own Google account is on its test-user list — see
 `.github/workflows/pages.yml` runs on every push to `main`:
 
 1. typecheck → lint → unit tests → Playwright
-2. build with the base path `/UnderRock/`
+2. build with the base path `/LaTeXRenderer/`
 3. scan `dist/` for credential material and fail the run on any hit
 4. publish to GitHub Pages
 5. smoke-test the live URL, including that a hashed asset and `404.html` both return 200
