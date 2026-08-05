@@ -43,11 +43,17 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
-      - name: End-to-end and security tests
+      - name: End-to-end and security tests (Supabase mode)
         run: npm run test:e2e
         env:
           VITE_SUPABASE_URL: https://e2etest.supabase.co
           VITE_SUPABASE_ANON_KEY: e2e-anon-key
+
+      # Runs against the REAL editor bundle committed in public/app/, which is what a
+      # visitor actually receives. Deliberately no VITE_SUPABASE_* -- that absence is
+      # what selects direct mode.
+      - name: End-to-end tests (direct mode, real editor bundle)
+        run: npm run test:direct
 
       - name: Upload Playwright report
         if: always()

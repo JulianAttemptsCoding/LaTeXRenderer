@@ -15,6 +15,29 @@ password gate.
 
 ---
 
+## Two modes
+
+The mode is chosen automatically at build time by whether Supabase is configured.
+
+| | **DIRECT** (current) | **SUPABASE** (optional upgrade) |
+|---|---|---|
+| To set up | a Google Client ID | + Supabase project, OAuth secret, Edge Functions |
+| Sign-in | Google Identity Services, in the browser | Supabase Auth, PKCE, verified server-side |
+| Shared-password gate | none | yes, PBKDF2 checked server-side |
+| Editor bundle | public, from `public/app/` | private bucket, 5-minute signed URLs |
+| Asset SHA-256 verified | yes | yes |
+| Who can use the site | anyone with the URL | only signed-in users past the gate |
+| Where your documents live | browser / folder / your own Drive | identical |
+
+Direct mode is defensible because **nothing in it trusts the identity for authorisation**:
+there is no server-side data, no shared store, and no privileged action. Your projects live
+in your own browser, folder, or Drive — and Drive access is granted by Google directly to
+your account, which *is* verified, by Google, where it matters.
+
+What direct mode does **not** do is restrict who may use the site. If that matters, set the
+two Supabase repository variables and re-deploy. See
+[`docs/SECURITY_MODEL.md`](docs/SECURITY_MODEL.md) §0.
+
 ## What this repository can and cannot protect
 
 GitHub Pages is static file hosting. It cannot authenticate anyone, it cannot keep a
@@ -99,7 +122,9 @@ auth configured and your own Google account is on its test-user list — see
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run lint` | ESLint, including the rules banning `innerHTML` and `eval` in the shell |
 | `npm run test` | Vitest unit tests (integrity verification, cache, teardown) |
-| `npm run test:e2e` | Playwright security and workflow suite |
+| `npm run test:e2e` | Playwright security and workflow suite (Supabase mode) |
+| `npm run test:direct` | Playwright suite against the real editor bundle in direct mode |
+| `npm run sync:app` | Copy the built editor from a sibling `texCompiler` into `public/app/` |
 | `npm run scan:secrets` | Fail if credential material or the literal password appears anywhere |
 | `npm run verify` | All of the above, in the order CI runs them |
 
