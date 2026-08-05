@@ -1,0 +1,23 @@
+node_modules/
+dist/
+.vite/
+coverage/
+*.tsbuildinfo
+
+# Never commit a local environment file. .env.example is the documented template.
+.env
+.env.local
+.env.*.local
+!.env.example
+
+playwright-report/
+test-results/
+blob-report/
+.playwright/
+
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
