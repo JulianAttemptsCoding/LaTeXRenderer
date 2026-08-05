@@ -240,21 +240,72 @@ test.describe("bundle integrity", () => {
 });
 
 test.describe("GitHub Pages base path", () => {
-  test("the app is served under /LaTeXRenderer/ and its assets resolve", async ({ page }) => {
+  test("every asset resolves, with no failed requests", async ({ page }) => {
     const failures: string[] = [];
     page.on("response", (r) => {
-      if (r.status() >= 400 && r.url().includes("/LaTeXRenderer/")) failures.push(r.url());
+      if (r.status() >= 400 && new URL(r.url()).origin === "http://localhost:4173") {
+        failures.push(`${r.status()} ${r.url()}`);
+      }
     });
     await page.goto("./");
     await expect(page.getByRole("button", { name: /continue with google/i })).toBeVisible();
     expect(failures).toEqual([]);
   });
 
-  test("a direct deep link still renders the app instead of a 404 page", async ({ page }) => {
-    // GitHub Pages serves 404.html for unknown paths; the build copies index.html there.
-    const response = await page.goto("./some/deep/route");
-    expect(response?.status()).toBeLessThan(500);
-    await expect(page.getByRole("button", { name: /continue with google/i })).toBeVisible();
+  test("asset references are RELATIVE, so the build survives a repository rename", async ({
+    page,
+  }) => {
+    // This is the property that matters. An absolute "/LaTeXRenderer/assets/…" would break
+    // the moment the repo is renamed or the site moves to the bare user-site root -- which
+    // has already happened once on this project. Relative references work at any depth.
+    await page.goto("./");
+    const refs = await page.evaluate(() => ({
+      scripts: [...document.querySelectorAll("script[src]")].map((s) =>
+        s.getAttribute("src"),
+      ),
+      styles: [...document.querySelectorAll('link[rel="stylesheet"]')].map((l) =>
+        l.getAttribute("href"),
+      ),
+    }));
+
+    const all = [...refs.scripts, ...refs.styles].filter(Boolean) as string[];
+    expect(all.length).toBeGreaterThan(0);
+    for (const ref of all) {
+      expect(ref, `${ref} must not be an absolute path`).not.toMatch(/^\//);
+      expect(ref, `${ref} must not hard-code a repository name`).not.toContain("LaTeXRenderer");
+    }
+  });
+
+  test("the OAuth redirect is derived from the live URL, not hard-coded", async ({ page }) => {
+    await page.goto("./");
+    // config.detectBasePath() reads location.pathname at runtime. Google requires the
+    // redirect URI to match exactly, so a baked-in value is what causes
+    // redirect_uri_mismatch after a rename.
+    const source = await page.evaluate(async () => {
+      const parts: string[] = [];
+      for (const s of Array.from(document.querySelectorAll("script[src]"))) {
+        parts.push(await (await fetch((s as HTMLScriptElement).src)).text());
+      }
+      return parts.join("\n");
+    });
+    expect(source).toContain("location.pathname");
+  });
+
+  test("an unknown path shows a real error page with a way back", async ({ page }) => {
+    // Deliberately NOT an app-boot fallback. Assets are referenced relatively, so booting
+    // the app from /a/b/ would look for /a/b/assets/... and render blank -- worse than an
+    // error. The shell has no routes, so a genuine 404 page is the correct answer.
+    await page.goto("./404.html");
+    await expect(page.getByRole("heading", { name: /does not exist/i })).toBeVisible();
+    await expect(page.getByRole("link", { name: /go to underrock/i })).toBeVisible();
+
+    // It must stand on its own: no external CSS or JS to fetch.
+    const external = await page.evaluate(() => ({
+      scripts: [...document.querySelectorAll("script[src]")].length,
+      styles: [...document.querySelectorAll('link[rel="stylesheet"]')].length,
+    }));
+    expect(external.scripts).toBe(0);
+    expect(external.styles).toBe(0);
   });
 
   test("a refresh after the OAuth redirect does not 404", async ({ page }) => {

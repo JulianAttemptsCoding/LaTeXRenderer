@@ -155,21 +155,33 @@ jobs:
           echo "$body" | grep -q 'id="root"' \
             || { echo "::error::index.html did not contain #root"; exit 1; }
 
-          asset=$(echo "$body" | grep -oE '/LaTeXRenderer/assets/shell-[A-Za-z0-9_-]+\.js' | head -1)
+          # Assets are referenced RELATIVELY so the build survives a repository rename.
+          # An absolute reference here would mean the base path is baked in again.
+          if echo "$body" | grep -qE '(src|href)="/[^"]*assets/'; then
+            echo "::error::Absolute asset path found. The build must use a relative base."
+            exit 1
+          fi
+
+          asset=$(echo "$body" | grep -oE '\./assets/shell-[A-Za-z0-9_-]+\.js' | head -1)
           if [ -z "$asset" ]; then
             echo "::error::No shell bundle referenced in index.html"
             exit 1
           fi
-          acode=$(curl -s -o /dev/null -w '%{http_code}' "https://julianattemptscoding.github.io${asset}")
+          acode=$(curl -s -o /dev/null -w '%{http_code}' "${BASE}${asset#./}")
           if [ "$acode" != "200" ]; then
-            echo "::error::Asset $asset returned HTTP $acode -- the base path is wrong"
+            echo "::error::Asset $asset returned HTTP $acode from $BASE"
             exit 1
           fi
 
-          # The 404 fallback is what makes a refreshed deep link work.
+          # A self-contained error page, not an app-boot fallback -- booting the app from an
+          # unknown path would resolve relative assets from the wrong directory and render blank.
           fcode=$(curl -s -o /dev/null -w '%{http_code}' "${BASE}404.html")
           if [ "$fcode" != "200" ]; then
-            echo "::error::404.html is missing; deep links will break"
+            echo "::error::404.html is missing"
+            exit 1
+          fi
+          if curl -s "${BASE}404.html" | grep -q 'assets/shell-'; then
+            echo "::error::404.html references build assets; it must stand alone."
             exit 1
           fi
 

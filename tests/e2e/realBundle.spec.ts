@@ -121,7 +121,6 @@ test.describe("the real editor bundle", () => {
     );
     expect(String(workerUrl)).toMatch(/^blob:/);
 
-    // eslint-disable-next-line no-console
     console.log(`console errors during load: ${consoleErrors.length}`);
   });
 

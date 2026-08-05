@@ -1,30 +1,91 @@
 import { defineConfig } from "vite";
-import { copyFileSync, existsSync } from "node:fs";
+import { copyFileSync, existsSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 /**
- * The site is served from https://julianattemptscoding.github.io/LaTeXRenderer/, so every
- * emitted asset URL must carry the /LaTeXRenderer/ prefix. `base` is overridable for local
- * preview and for anyone who forks the project under a different repository name.
+ * Relative base, on purpose.
+ *
+ * "./" makes every emitted asset URL relative to the page that loads it, so exactly the
+ * same build works at
+ *
+ *     https://julianattemptscoding.github.io/LaTeXRenderer/     (project site)
+ *     https://julianattemptscoding.github.io/                   (user site, if that repo
+ *                                                                is ever created)
+ *     http://localhost:4173/                                    (preview)
+ *
+ * with no rebuild and no environment variable. A hard-coded "/LaTeXRenderer/" would break
+ * the moment the repository is renamed -- which has already happened once on this project.
+ *
+ * This works because the shell is a single page: there are no nested routes whose depth
+ * would change how "./assets/…" resolves. VITE_BASE_PATH still overrides it for anyone who
+ * needs an absolute base.
  */
-const base = process.env.VITE_BASE_PATH ?? "/LaTeXRenderer/";
+const base = process.env.VITE_BASE_PATH ?? "./";
 
 /**
- * GitHub Pages serves 404.html for any path it cannot map to a file. Copying the built
- * index.html to 404.html makes a direct navigation to a deep link -- or a refresh after
- * the OAuth redirect -- render the app instead of GitHub's error page.
+ * GitHub Pages serves 404.html for any path it cannot map to a file.
  *
- * The shell additionally uses hash routing, so this is belt and braces: the hash form
- * never needs the fallback, and the fallback covers anyone who types a path by hand.
+ * The obvious trick is to copy index.html there so a deep link boots the app. That is
+ * WRONG for this build: assets are referenced relatively, so at /LaTeXRenderer/a/b/ the
+ * browser would look for /LaTeXRenderer/a/b/assets/... and get nothing. The page would
+ * render blank, which is worse than an error.
+ *
+ * It is also unnecessary. The shell is a single view driven by a state machine -- there
+ * are no routes, and the OAuth redirect returns to the base path, which is a real file.
+ * So 404.html is a genuine, self-contained error page: no external assets, no JavaScript
+ * required to read it, and a link home computed at runtime for the common case of a
+ * mistyped path under a project site.
  */
+const NOT_FOUND_HTML = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Page not found — UnderRock</title>
+    <style>
+      :root { color-scheme: light dark; --fg: #1a1a18; --muted: #6b6b66; --bg: #f7f7f5; --accent: #1d4ed8; }
+      @media (prefers-color-scheme: dark) {
+        :root { --fg: #ececE6; --muted: #9a9a92; --bg: #14140f; --accent: #60a5fa; }
+      }
+      body {
+        margin: 0; min-height: 100dvh; display: grid; place-items: center; padding: 2rem;
+        background: var(--bg); color: var(--fg);
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        line-height: 1.55; text-align: center;
+      }
+      main { max-width: 32rem; display: grid; gap: 0.75rem; }
+      h1 { margin: 0; font-size: 1.4rem; font-weight: 640; letter-spacing: -0.02em; }
+      p { margin: 0; color: var(--muted); }
+      a { color: var(--accent); }
+      code { font-family: ui-monospace, Consolas, monospace; font-size: 0.85em; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>That page does not exist</h1>
+      <p>UnderRock is a single page, so there are no sub-pages to link to.</p>
+      <p><a id="home" href="/">Go to UnderRock</a></p>
+    </main>
+    <script>
+      // On a project site the app lives one segment down (/LaTeXRenderer/). On a user site
+      // it lives at the root. Guess from the current path, and fall back to "/" -- which is
+      // also what the link already says if this script never runs.
+      (function () {
+        var seg = location.pathname.split('/').filter(Boolean);
+        var home = seg.length > 1 ? '/' + seg[0] + '/' : '/';
+        document.getElementById('home').setAttribute('href', home);
+      })();
+    </script>
+  </body>
+</html>
+`;
+
 function pagesFallback() {
   return {
-    name: "underrock-pages-404-fallback",
+    name: "underrock-pages-404",
     closeBundle() {
-      const index = resolve(__dirname, "dist/index.html");
-      if (existsSync(index)) {
-        copyFileSync(index, resolve(__dirname, "dist/404.html"));
-      }
+      writeFileSync(resolve(__dirname, "dist/404.html"), NOT_FOUND_HTML);
       // .nojekyll stops GitHub Pages from stripping files that begin with an underscore.
       const nojekyll = resolve(__dirname, "dist/.nojekyll");
       if (!existsSync(nojekyll)) {

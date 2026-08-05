@@ -28,10 +28,27 @@ function readEnv(name: string): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+/**
+ * Works out the directory this page is served from, at runtime.
+ *
+ * Derived rather than baked in, so the same build runs at the project-site path
+ * (/LaTeXRenderer/), at the bare user-site root (/), and at localhost, without a rebuild.
+ * Google requires the OAuth redirect URI to match exactly, so getting this wrong produces
+ * redirect_uri_mismatch -- which is precisely the failure a hard-coded value invites the
+ * moment a repository is renamed.
+ */
+function detectBasePath(): string {
+  if (typeof location === "undefined") return "/";
+  const path = location.pathname;
+  // Strip a trailing filename (anything containing a dot in the last segment).
+  const trimmed = /\/[^/]*\.[^/]*$/.test(path) ? path.replace(/\/[^/]*$/, "/") : path;
+  return trimmed.endsWith("/") ? trimmed : `${trimmed}/`;
+}
+
 function build(): AppConfig {
   const supabaseUrl = readEnv("VITE_SUPABASE_URL").replace(/\/+$/, "");
   const supabaseAnonKey = readEnv("VITE_SUPABASE_ANON_KEY");
-  const basePath = readEnv("VITE_BASE_PATH") || "/LaTeXRenderer/";
+  const basePath = readEnv("VITE_BASE_PATH") || detectBasePath();
 
   const problems: string[] = [];
   if (!supabaseUrl) problems.push("VITE_SUPABASE_URL is not set");
