@@ -156,13 +156,46 @@ jobs:
         env:
           SHARED_PASSWORD_CANARY: ${{ secrets.SHARED_PASSWORD_CANARY }}
 
-      - name: Assert the service-role key is absent from the bundle
+      - name: Assert no credential material is in the bundle
         run: |
-          if grep -rE 'service_role|sb_secret_|GOCSPX-' dist/ ; then
-            echo "::error::Forbidden credential material found in dist/."
-            exit 1
+          set -euo pipefail
+          # Match credential SHAPES, not words.
+          #
+          # The bare strings "service_role" and "GOCSPX-" legitimately appear in the
+          # bundle: src/config.ts refuses to start when a service-role key is pasted into
+          # the publishable slot, and DriveSetup.tsx refuses a GOCSPX- client secret and
+          # explains why. Grepping for the words fails on exactly the code that prevents
+          # the leak, which is how the first version of this step broke the build.
+          fail=0
+
+          # A JWT whose payload carries role=service_role.
+          if grep -rlE 'eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]*service_role' dist/; then
+            echo "::error::A service-role JWT is present in dist/."
+            fail=1
           fi
-          echo "dist/ is clean."
+          # A Supabase secret key.
+          if grep -rlE '\bsb_secret_[A-Za-z0-9_-]{10,}' dist/; then
+            echo "::error::A Supabase secret key is present in dist/."
+            fail=1
+          fi
+          # A real Google OAuth client secret, not the bare prefix.
+          if grep -rlE '\bGOCSPX-[A-Za-z0-9_-]{10,}' dist/; then
+            echo "::error::A Google OAuth client secret is present in dist/."
+            fail=1
+          fi
+          # Private key material.
+          if grep -rlE -- '-----BEGIN [A-Z ]*PRIVATE KEY-----' dist/; then
+            echo "::error::Private key material is present in dist/."
+            fail=1
+          fi
+          # PBKDF2 material for the shared password.
+          if grep -rlE 'SITE_PASSWORD_(HASH|SALT)_B64[[:space:]]*[=:][[:space:]]*["'"'"'`]?[A-Za-z0-9+/]{20,}' dist/; then
+            echo "::error::Shared-password PBKDF2 material is present in dist/."
+            fail=1
+          fi
+
+          [ "$fail" = "0" ] || exit 1
+          echo "dist/ carries no credential material."
 
       - uses: actions/configure-pages@v5
 
