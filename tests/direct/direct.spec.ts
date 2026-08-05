@@ -61,6 +61,22 @@ test.describe("direct mode", () => {
     await expect(page.locator("#underrock-root")).toHaveCount(0);
   });
 
+  test("when Google will not draw its button, the page says exactly what to fix", async ({
+    page,
+  }) => {
+    // Google refuses to render, silently, when the page origin is not on the OAuth
+    // client's authorised-origins list -- by far the likeliest first-run failure. Blocking
+    // its script reproduces that same empty-slot outcome. Without this the page presents as
+    // a button that simply is not there.
+    await page.goto("./");
+    const alert = page.getByRole("alert");
+    await expect(alert).toBeVisible({ timeout: 20_000 });
+    await expect(alert).toContainText(/authorised javascript origins/i);
+    // It must show the exact value to paste, not a vague instruction.
+    await expect(page.locator(".origin-value")).toHaveText("http://localhost:4174");
+    await expect(page.getByRole("link", { name: /google cloud credentials/i })).toBeVisible();
+  });
+
   test("no Supabase call is attempted", async ({ page }) => {
     const supabaseCalls: string[] = [];
     page.on("request", (r) => {

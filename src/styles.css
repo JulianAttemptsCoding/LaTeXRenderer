@@ -205,6 +205,20 @@ p {
   border-color: transparent;
 }
 
+.origin-value {
+  display: block;
+  margin: 0.5rem 0;
+  padding: 0.45rem 0.6rem;
+  border-radius: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  overflow-x: auto;
+  white-space: nowrap;
+  user-select: all; /* one click selects the whole origin for copying */
+}
+
 .g-mark {
   display: grid;
   place-items: center;

@@ -77,17 +77,81 @@ function showLanding(error?: string | null): void {
   // rules require their button, and the popup will not open reliably from a synthetic click.
   const host = document.getElementById(GOOGLE_BUTTON_ID);
   if (!host) return;
+
   void renderSignInButton(host, (profile, signInError) => {
     if (profile) void afterDirectSignIn(profile);
     else if (signInError) showLanding(signInError);
-  }).catch((err: unknown) => {
-    // The fallback button underneath still works, so this is informational.
-    console.warn("Google button could not render:", err);
-  });
+  })
+    .then(() => {
+      // Google refuses to render, silently, when the page's origin is not on the OAuth
+      // client's authorised-origins list. That is by far the most likely first-run
+      // failure, and without this check it presents as a button that simply is not there.
+      // Detect the empty slot and say exactly what to fix.
+      window.setTimeout(() => {
+        if (host.isConnected && host.childElementCount === 0) {
+          renderOriginHelp(host);
+        }
+      }, 2500);
+    })
+    .catch((err: unknown) => {
+      console.warn("Google button could not render:", err);
+      if (host.isConnected) renderOriginHelp(host, err instanceof Error ? err.message : undefined);
+    });
 
   void promptOneTap((profile) => {
     if (profile) void afterDirectSignIn(profile);
   });
+}
+
+/**
+ * Shown when Google declines to draw its button.
+ *
+ * Almost always means the OAuth client does not list this exact origin. The message gives
+ * the value to paste and where to paste it, rather than a generic failure.
+ */
+function renderOriginHelp(host: HTMLElement, detail?: string): void {
+  const origin = location.origin;
+  const box = document.createElement("div");
+  box.className = "alert alert-error";
+  box.setAttribute("role", "alert");
+
+  const line = (text: string, cls = "") => {
+    const p = document.createElement("p");
+    if (cls) p.className = cls;
+    p.textContent = text;
+    return p;
+  };
+
+  box.appendChild(line("Google would not show its sign-in button."));
+  box.appendChild(
+    line(
+      "This nearly always means the OAuth client does not list this site's origin. " +
+        "Add this exact value under “Authorised JavaScript origins”, with no path and no " +
+        "trailing slash:",
+      "small",
+    ),
+  );
+
+  const code = document.createElement("code");
+  code.className = "origin-value";
+  code.textContent = origin;
+  box.appendChild(code);
+
+  const link = document.createElement("a");
+  link.href = "https://console.cloud.google.com/apis/credentials";
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.textContent = "Open Google Cloud credentials";
+  const linkWrap = line("", "small");
+  linkWrap.appendChild(link);
+  box.appendChild(linkWrap);
+
+  box.appendChild(
+    line("Changes can take a few minutes to take effect. Reload after saving.", "small"),
+  );
+  if (detail) box.appendChild(line(detail, "small"));
+
+  host.replaceChildren(box);
 }
 
 async function beginSignIn(): Promise<void> {
