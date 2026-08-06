@@ -49,11 +49,18 @@ jobs:
           VITE_SUPABASE_URL: https://e2etest.supabase.co
           VITE_SUPABASE_ANON_KEY: e2e-anon-key
 
-      # Runs against the REAL editor bundle committed in public/app/, which is what a
-      # visitor actually receives. Deliberately no VITE_SUPABASE_* -- that absence is
-      # what selects direct mode.
-      - name: End-to-end tests (direct mode, real editor bundle)
+      # Runs against the REAL encrypted bundle committed in public/app-locked/, which is
+      # what a visitor actually receives. Deliberately no VITE_SUPABASE_* -- that absence
+      # is what selects direct mode.
+      #
+      # SHARED_PASSWORD is optional. Without it the nine unlock cases SKIP, and the suite
+      # says so; it never reports them as passing. Set the secret to have CI exercise
+      # decryption end to end. Passed through env, never a step-level `if:` -- the secrets
+      # context is illegal there and makes GitHub refuse to schedule the workflow at all.
+      - name: End-to-end tests (direct mode, encrypted bundle)
         run: npm run test:direct
+        env:
+          SHARED_PASSWORD: ${{ secrets.SHARED_PASSWORD }}
 
       - name: Upload Playwright report
         if: always()
