@@ -147,7 +147,7 @@ export interface PasswordHandlers {
 }
 
 export function passwordView(
-  email: string,
+  email: string | null,
   handlers: PasswordHandlers,
   state: { error?: string | null; busy?: boolean; lockedMinutes?: number | null } = {},
 ): HTMLElement {
@@ -191,7 +191,13 @@ export function passwordView(
   return shell(
     wordmark(),
     el("h1", {}, "Enter the access password"),
-    el("p", { class: "signed-in-as" }, `Signed in as ${email}`),
+    el(
+      "p",
+      { class: "lede" },
+      "UnderRock is private. Enter the access password to continue.",
+    ),
+    // Only after sign-in does an address exist to show; before it, this is the front door.
+    email ? el("p", { class: "signed-in-as" }, `Signed in as ${email}`) : null,
     state.lockedMinutes
       ? el(
           "div",
@@ -203,11 +209,18 @@ export function passwordView(
       ? el("div", { class: "alert alert-error", role: "alert" }, state.error)
       : null,
     form,
-    el(
-      "button",
-      { class: "btn btn-quiet", type: "button", onclick: handlers.onSignOut },
-      "Use a different account",
-    ),
+    // Only meaningful once somebody is signed in; before that there is no account to swap.
+    email
+      ? el(
+          "button",
+          { class: "btn btn-quiet", type: "button", onclick: handlers.onSignOut },
+          "Use a different account",
+        )
+      : el(
+          "p",
+          { class: "muted small" },
+          "You will be asked to sign in with Google after this.",
+        ),
   );
 }
 

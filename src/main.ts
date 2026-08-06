@@ -87,8 +87,21 @@ function showLanding(error?: string | null): void {
   if (!host) return;
 
   void renderSignInButton(host, (profile, signInError) => {
-    if (profile) void afterDirectSignIn(profile);
-    else if (signInError) showLanding(signInError);
+    if (profile) {
+      void afterDirectSignIn(profile);
+      return;
+    }
+    if (!signInError) return;
+    // "invalid_client" / "no registered origin" means the OAuth client does not list this
+    // page's origin. Google reports it in its own popup, so without this the user is
+    // bounced back to a landing page that looks fine and explains nothing.
+    if (/invalid_client|origin|unregistered|401/i.test(signInError)) {
+      showLanding();
+      const slot = document.getElementById(GOOGLE_BUTTON_ID);
+      if (slot) renderOriginHelp(slot, signInError);
+      return;
+    }
+    showLanding(signInError);
   })
     .then(() => {
       // Google refuses to render, silently, when the page's origin is not on the OAuth
@@ -183,7 +196,8 @@ async function beginSignIn(): Promise<void> {
 async function afterDirectSignIn(profile: GoogleProfile): Promise<void> {
   rememberAccount(profile);
   render(loadingView(`Signed in as ${profile.email}`));
-  await openWorkspace();
+  // The password was supplied before sign-in, so the key is already cached; go straight in.
+  await boot();
 }
 
 /**
@@ -334,15 +348,34 @@ async function unlockAndRun(
   }
 }
 
+/** Decrypts and starts the editor with an already-derived key, rendering any failure. */
+async function runUnlocked(envelope: LockedEnvelope, key: CryptoKey): Promise<void> {
+  const result = await unlockAndRun(envelope, key);
+  if (result.ok) return;
+  if (result.wrongPassword) {
+    // A cached key that no longer works: the build changed, or storage was tampered with.
+    clearUnlockKey();
+    showPasswordGate(envelope);
+    return;
+  }
+  render(
+    errorView("Could not start", result.message, { onRetry: boot, onSignOut: doSignOut }),
+  );
+}
+
+/**
+ * The shared-password gate. Shown before anything else, including sign-in.
+ *
+ * On success the derived key is cached for the tab, then the flow moves to Google
+ * sign-in — or straight into the editor if a session already exists.
+ */
 function showPasswordGate(
   envelope: LockedEnvelope,
   state: { error?: string | null; busy?: boolean } = {},
 ): void {
-  const email = storedSession()?.email ?? "your Google account";
-
   const submit = async (password: string) => {
     showPasswordGate(envelope, { busy: true });
-    // The derivation is deliberately slow; yield first so the "Checking…" state paints.
+    // The derivation is deliberately slow; yield first so the busy state paints.
     await new Promise((r) => setTimeout(r, 16));
 
     let key: CryptoKey;
@@ -355,26 +388,39 @@ function showPasswordGate(
       return;
     }
 
-    const result = await unlockAndRun(envelope, key);
-    if (result.ok) {
-      await cacheUnlockKey(key, envelope.buildId);
+    // Prove the key before caching it: decrypt one asset and check the GCM tag. Caching
+    // an unverified key would mean a wrong password appearing to succeed until the next
+    // reload failed confusingly.
+    render(loadingView("Unlocking"));
+    try {
+      await unlockManifest(envelope, key, config.basePath);
+    } catch (err) {
+      if (err instanceof WrongPasswordError) {
+        showPasswordGate(envelope, { error: "That password is not correct." });
+        return;
+      }
+      render(
+        errorView("Could not start", err instanceof Error ? err.message : String(err), {
+          onRetry: boot,
+        }),
+      );
       return;
     }
-    if (result.wrongPassword) {
-      showPasswordGate(envelope, { error: "That password is not correct." });
+
+    await cacheUnlockKey(key, envelope.buildId);
+
+    const profile = storedSession();
+    if (!profile) {
+      showLanding();
       return;
     }
-    render(
-      errorView("Could not start", result.message, {
-        onRetry: openWorkspace,
-        onSignOut: doSignOut,
-      }),
-    );
+    rememberAccount(profile);
+    await runUnlocked(envelope, key);
   };
 
   render(
     passwordView(
-      email,
+      storedSession()?.email ?? null,
       { onSubmit: (password) => void submit(password), onSignOut: doSignOut },
       state,
     ),
@@ -442,32 +488,8 @@ async function resolveManifest(): Promise<
 }
 
 async function openWorkspace(): Promise<void> {
-  if (DIRECT) {
-    render(loadingView("Opening your workspace"));
-    let envelope: LockedEnvelope;
-    try {
-      envelope = await fetchEnvelope(config.basePath);
-    } catch (err) {
-      render(
-        errorView("Editor not published", err instanceof Error ? err.message : String(err), {
-          onRetry: openWorkspace,
-          onSignOut: doSignOut,
-        }),
-      );
-      return;
-    }
-
-    // A key cached earlier in this tab means no second password prompt on reload.
-    const cached = await cachedUnlockKey(envelope.buildId);
-    if (cached) {
-      const result = await unlockAndRun(envelope, cached);
-      if (result.ok) return;
-      clearUnlockKey(); // stale or wrong; fall through and ask properly
-    }
-
-    showPasswordGate(envelope);
-    return;
-  }
+  // Direct mode always re-enters through boot(), which enforces password-then-identity.
+  if (DIRECT) return boot();
 
   render(loadingView("Opening your workspace"));
 
@@ -528,16 +550,40 @@ async function boot(): Promise<void> {
   render(loadingView("Starting up"));
 
   if (DIRECT) {
-    const profile = storedSession();
-    if (profile) {
-      // Also on a restored session, not only on a fresh sign-in. Otherwise someone who
-      // signed in once and thereafter always arrived with a live session would never get
-      // an account record, and lastSeenAt would never move.
-      rememberAccount(profile);
-      await openWorkspace();
+    // ORDER: password first, then Google, then the editor.
+    //
+    // The password gates the whole site, so it is asked before anything else -- including
+    // before sign-in. That is also the honest order: the password is the decryption key,
+    // so until it is supplied there is genuinely nothing to show. Signing in first would
+    // have implied the site was already open.
+    let envelope: LockedEnvelope;
+    try {
+      envelope = await fetchEnvelope(config.basePath);
+    } catch (err) {
+      render(
+        errorView("Editor not published", err instanceof Error ? err.message : String(err), {
+          onRetry: boot,
+        }),
+      );
       return;
     }
-    showLanding();
+
+    const key = await cachedUnlockKey(envelope.buildId);
+    if (!key) {
+      showPasswordGate(envelope);
+      return;
+    }
+
+    // Past the password. Now identity.
+    const profile = storedSession();
+    if (!profile) {
+      showLanding();
+      return;
+    }
+    // Refreshed on a restored session too, not only a fresh sign-in, or lastSeenAt would
+    // never move for anyone who signs in once and always returns with a live session.
+    rememberAccount(profile);
+    await runUnlocked(envelope, key);
     return;
   }
 

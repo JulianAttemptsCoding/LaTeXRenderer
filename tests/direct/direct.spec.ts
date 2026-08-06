@@ -61,25 +61,22 @@ test.describe("direct mode", () => {
     await blockGoogle(page);
   });
 
-  // -- before sign-in --------------------------------------------------------
+  // -- the gate comes first, before anything else ----------------------------
 
-  test("a first-time visitor sees the mission and a way to sign in", async ({ page }) => {
+  test("the very first thing a visitor sees is the password, not sign-in", async ({ page }) => {
     await page.goto("./");
-    await expect(page.getByRole("heading", { name: /make latex free and open/i })).toBeVisible();
-    await expect(page.getByRole("button", { name: /continue with google/i })).toBeVisible();
+    await expect(page.getByLabel(/access password/i)).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole("heading", { name: /enter the access password/i })).toBeVisible();
+    // Identity comes after the gate, so there must be no Google button yet.
+    await expect(page.getByRole("button", { name: /continue with google/i })).toHaveCount(0);
     await expect(page.locator("#underrock-root")).toHaveCount(0);
-    // No password box before sign-in: identity comes first.
-    await expect(page.getByLabel(/access password/i)).toHaveCount(0);
   });
 
-  test("when Google will not draw its button, the page says exactly what to fix", async ({
-    page,
-  }) => {
+  test("even with a signed-in session, the password is still demanded", async ({ page }) => {
+    await seedSession(page);
     await page.goto("./");
-    const alert = page.getByRole("alert");
-    await expect(alert).toBeVisible({ timeout: 20_000 });
-    await expect(alert).toContainText(/authorised javascript origins/i);
-    await expect(page.locator(".origin-value")).toHaveText("http://localhost:4174");
+    await expect(page.getByLabel(/access password/i)).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator("#underrock-root")).toHaveCount(0);
   });
 
   test("no Supabase call is attempted", async ({ page }) => {
@@ -88,20 +85,8 @@ test.describe("direct mode", () => {
       if (r.url().includes(".supabase.co")) calls.push(r.url());
     });
     await page.goto("./");
-    await expect(page.getByRole("button", { name: /continue with google/i })).toBeVisible();
-    expect(calls).toEqual([]);
-  });
-
-  // -- the gate --------------------------------------------------------------
-
-  test("signed in but not unlocked: the password is demanded and no editor loads", async ({
-    page,
-  }) => {
-    await seedSession(page);
-    await page.goto("./");
     await expect(page.getByLabel(/access password/i)).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText(/signed in as tester@example.test/i)).toBeVisible();
-    await expect(page.locator("#underrock-root")).toHaveCount(0);
+    expect(calls).toEqual([]);
   });
 
   test("the plaintext editor is not reachable at all", async ({ page }) => {
@@ -153,7 +138,6 @@ test.describe("direct mode", () => {
   });
 
   test("a wrong password is refused and nothing executes", async ({ page }) => {
-    await seedSession(page);
     await page.goto("./");
     await expect(page.getByLabel(/access password/i)).toBeVisible({ timeout: 30_000 });
 
@@ -161,7 +145,9 @@ test.describe("direct mode", () => {
 
     await expect(page.getByRole("alert")).toContainText(/not correct/i, { timeout: 60_000 });
     await expect(page.locator("#underrock-root")).toHaveCount(0);
-    // A failed attempt must not leave a usable key behind.
+    // It must also not have advanced to sign-in: a wrong password gets you nowhere.
+    await expect(page.getByRole("button", { name: /continue with google/i })).toHaveCount(0);
+    // And it must not leave a usable key behind.
     const cached = await page.evaluate((k) => sessionStorage.getItem(k), UNLOCK_KEY);
     expect(cached).toBeNull();
   });
@@ -187,7 +173,25 @@ test.describe("direct mode", () => {
         "Run: SHARED_PASSWORD=... npm run test:direct",
     );
 
-    test("the correct password decrypts and starts the editor", async ({ page }) => {
+    test("the correct password, with no session, leads to Google sign-in", async ({ page }) => {
+      // The order the owner asked for: password -> Google -> editor.
+      await page.goto("./");
+      await expect(page.getByLabel(/access password/i)).toBeVisible({ timeout: 30_000 });
+      await unlock(page, PASSWORD);
+
+      await expect(page.getByRole("heading", { name: /make latex free and open/i })).toBeVisible({
+        timeout: 60_000,
+      });
+      await expect(page.getByRole("button", { name: /continue with google/i })).toBeVisible();
+      // Unlocked, but not signed in, so still no editor.
+      await expect(page.locator("#underrock-root")).toHaveCount(0);
+      // The key is cached, so a reload must not ask for the password again.
+      expect(await page.evaluate((k) => sessionStorage.getItem(k), UNLOCK_KEY)).not.toBeNull();
+    });
+
+    test("the correct password with a session decrypts and starts the editor", async ({
+      page,
+    }) => {
       const pageErrors: string[] = [];
       page.on("pageerror", (e) => pageErrors.push(e.message));
 
@@ -279,9 +283,9 @@ test.describe("direct mode", () => {
 
       await page.evaluate(() => window.dispatchEvent(new CustomEvent("underrock:sign-out")));
 
-      await expect(page.getByRole("button", { name: /continue with google/i })).toBeVisible({
-        timeout: 30_000,
-      });
+      // Both gates re-arm: signing out drops the unlock key too, so the password is the
+      // first thing demanded again -- not the Google button.
+      await expect(page.getByLabel(/access password/i)).toBeVisible({ timeout: 30_000 });
       const state = await page.evaluate(
         ([s, u]) => ({
           session: localStorage.getItem(s as string),
@@ -291,6 +295,20 @@ test.describe("direct mode", () => {
       );
       expect(state.session).toBeNull();
       expect(state.unlock).toBeNull();
+    });
+
+    test("when Google refuses the origin, the page says exactly what to fix", async ({ page }) => {
+      // Reproduces the "Error 401: invalid_client / no registered origin" case by blocking
+      // Google's script, which leaves the same empty button slot.
+      await page.goto("./");
+      await unlock(page, PASSWORD);
+      await expect(page.getByRole("button", { name: /continue with google/i })).toBeVisible({
+        timeout: 60_000,
+      });
+      const alert = page.getByRole("alert");
+      await expect(alert).toBeVisible({ timeout: 20_000 });
+      await expect(alert).toContainText(/authorised javascript origins/i);
+      await expect(page.locator(".origin-value")).toHaveText("http://localhost:4174");
     });
 
     test("lock keeps you signed in but demands the password again", async ({ page }) => {
