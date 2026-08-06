@@ -35,10 +35,18 @@ import {
 } from "./lib/googleAuth";
 import {
   IntegrityError,
+  WrongPasswordError,
+  cacheUnlockKey,
+  cachedUnlockKey,
   clearProtectedAppCache,
+  clearUnlockKey,
+  deriveUnlockKey,
+  fetchEnvelope,
   localManifest,
   startProtectedApp,
   stopProtectedApp,
+  unlockManifest,
+  type LockedEnvelope,
   type ProtectedManifest,
 } from "./lib/protectedApp";
 import { mount } from "./lib/dom";
@@ -173,8 +181,39 @@ async function beginSignIn(): Promise<void> {
 }
 
 async function afterDirectSignIn(profile: GoogleProfile): Promise<void> {
+  rememberAccount(profile);
   render(loadingView(`Signed in as ${profile.email}`));
   await openWorkspace();
+}
+
+/**
+ * Keeps a per-Google-account record on this device.
+ *
+ * In direct mode there is no database, so "your account" is this record plus whatever the
+ * editor stores under the same key: preferences, the local compiler token, the Drive
+ * Client ID. Keyed by the Google subject id so two people sharing a browser do not
+ * inherit each other's settings.
+ */
+function rememberAccount(profile: GoogleProfile): void {
+  try {
+    const key = `underrock.account.${profile.sub}`;
+    const existing = JSON.parse(localStorage.getItem(key) ?? "{}") as Record<string, unknown>;
+    localStorage.setItem(
+      key,
+      JSON.stringify({
+        ...existing,
+        sub: profile.sub,
+        email: profile.email,
+        name: profile.name,
+        picture: profile.picture,
+        firstSeenAt: existing.firstSeenAt ?? new Date().toISOString(),
+        lastSeenAt: new Date().toISOString(),
+      }),
+    );
+    localStorage.setItem("underrock.account.current", profile.sub);
+  } catch {
+    /* Private browsing can refuse writes; the session still works, it just does not persist. */
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -191,6 +230,7 @@ async function doSignOut(): Promise<void> {
     }
   }
   await stopProtectedApp();
+  clearUnlockKey(); // the next visitor must re-enter the shared password
   clearSession();
   if (!DIRECT) await signOut();
   // A reload is what actually reclaims whatever the editor bundle left behind.
@@ -244,6 +284,120 @@ async function submitPassword(email: string, password: string): Promise<void> {
 // workspace
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// direct mode: the shared-password gate
+// ---------------------------------------------------------------------------
+//
+// The editor is shipped encrypted (AES-256-GCM, key = PBKDF2-HMAC-SHA256 x310 000 of the
+// shared password). There is no server here, so a password that were merely *checked* in
+// JavaScript would be deleted by anyone who wanted in. Encrypting removes the thing to
+// bypass: without the password there is no plaintext to run.
+//
+// Honest limit, stated in SECURITY_MODEL.md too: the ciphertext is public, so an attacker
+// can brute-force offline. Strength is password entropy times KDF cost. Supabase mode is
+// stronger because five wrong guesses per fifteen minutes is enforced somewhere the
+// attacker does not control.
+
+async function unlockAndRun(
+  envelope: LockedEnvelope,
+  key: CryptoKey,
+): Promise<{ ok: true } | { ok: false; wrongPassword: boolean; message: string }> {
+  try {
+    render(progressView("Decrypting the application", 0, envelope.assets.length));
+    const { manifest, plaintext } = await unlockManifest(
+      envelope,
+      key,
+      config.basePath,
+      (done, total, path) => render(progressView(path, done, total)),
+    );
+
+    handOffToApp(manifest);
+    await startProtectedApp(manifest, {
+      preloaded: plaintext,
+      onProgress: (done, total, path) => render(progressView(path, done, total)),
+    });
+    appRunning = true;
+    root!.replaceChildren();
+    root!.removeAttribute("aria-live");
+    return { ok: true };
+  } catch (err) {
+    appRunning = false;
+    await stopProtectedApp();
+    if (err instanceof WrongPasswordError) {
+      return { ok: false, wrongPassword: true, message: err.message };
+    }
+    return {
+      ok: false,
+      wrongPassword: false,
+      message: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+function showPasswordGate(
+  envelope: LockedEnvelope,
+  state: { error?: string | null; busy?: boolean } = {},
+): void {
+  const email = storedSession()?.email ?? "your Google account";
+
+  const submit = async (password: string) => {
+    showPasswordGate(envelope, { busy: true });
+    // The derivation is deliberately slow; yield first so the "Checking…" state paints.
+    await new Promise((r) => setTimeout(r, 16));
+
+    let key: CryptoKey;
+    try {
+      key = await deriveUnlockKey(password, envelope);
+    } catch (err) {
+      showPasswordGate(envelope, {
+        error: err instanceof Error ? err.message : "Could not use that password.",
+      });
+      return;
+    }
+
+    const result = await unlockAndRun(envelope, key);
+    if (result.ok) {
+      await cacheUnlockKey(key, envelope.buildId);
+      return;
+    }
+    if (result.wrongPassword) {
+      showPasswordGate(envelope, { error: "That password is not correct." });
+      return;
+    }
+    render(
+      errorView("Could not start", result.message, {
+        onRetry: openWorkspace,
+        onSignOut: doSignOut,
+      }),
+    );
+  };
+
+  render(
+    passwordView(
+      email,
+      { onSubmit: (password) => void submit(password), onSignOut: doSignOut },
+      state,
+    ),
+  );
+}
+
+/** Values the editor reads out of the shell rather than importing shell code. */
+function handOffToApp(manifest: ProtectedManifest): void {
+  const w = window as unknown as Record<string, unknown>;
+  w.__UNDERROCK_GOOGLE_CLIENT_ID__ = config.googleClientId;
+  w.__UNDERROCK_MODE__ = config.mode;
+  const profile = storedSession();
+  if (profile) {
+    w.__UNDERROCK_ACCOUNT__ = {
+      sub: profile.sub,
+      email: profile.email,
+      name: profile.name,
+      picture: profile.picture,
+    };
+  }
+  void manifest;
+}
+
 async function resolveManifest(): Promise<
   { ok: true; manifest: ProtectedManifest } | { ok: false; node: HTMLElement }
 > {
@@ -288,6 +442,33 @@ async function resolveManifest(): Promise<
 }
 
 async function openWorkspace(): Promise<void> {
+  if (DIRECT) {
+    render(loadingView("Opening your workspace"));
+    let envelope: LockedEnvelope;
+    try {
+      envelope = await fetchEnvelope(config.basePath);
+    } catch (err) {
+      render(
+        errorView("Editor not published", err instanceof Error ? err.message : String(err), {
+          onRetry: openWorkspace,
+          onSignOut: doSignOut,
+        }),
+      );
+      return;
+    }
+
+    // A key cached earlier in this tab means no second password prompt on reload.
+    const cached = await cachedUnlockKey(envelope.buildId);
+    if (cached) {
+      const result = await unlockAndRun(envelope, cached);
+      if (result.ok) return;
+      clearUnlockKey(); // stale or wrong; fall through and ask properly
+    }
+
+    showPasswordGate(envelope);
+    return;
+  }
+
   render(loadingView("Opening your workspace"));
 
   const resolved = await resolveManifest();
@@ -297,13 +478,7 @@ async function openWorkspace(): Promise<void> {
   }
 
   const manifest = resolved.manifest;
-
-  // Hand the editor this deployment's Google Client ID so "Connect Drive" works out of the
-  // box. It is only a default -- Settings lets each person substitute their own, which is
-  // what removes the ten-test-user cap from Drive. See docs/GOOGLE_SETUP.md section B.
-  (window as unknown as Record<string, unknown>).__UNDERROCK_GOOGLE_CLIENT_ID__ =
-    config.googleClientId;
-  (window as unknown as Record<string, unknown>).__UNDERROCK_MODE__ = config.mode;
+  handOffToApp(manifest);
 
   render(progressView("Verifying the application", 0, manifest.assets.length));
 
@@ -353,7 +528,12 @@ async function boot(): Promise<void> {
   render(loadingView("Starting up"));
 
   if (DIRECT) {
-    if (storedSession()) {
+    const profile = storedSession();
+    if (profile) {
+      // Also on a restored session, not only on a fresh sign-in. Otherwise someone who
+      // signed in once and thereafter always arrived with a live session would never get
+      // an account record, and lastSeenAt would never move.
+      rememberAccount(profile);
       await openWorkspace();
       return;
     }
@@ -420,7 +600,8 @@ window.addEventListener("underrock:lock", () => {
   void (async () => {
     if (!DIRECT) await callFunction(FUNCTIONS.revokeAccess);
     await stopProtectedApp();
-    clearSession();
+    // Lock keeps you signed in to Google but demands the shared password again.
+    clearUnlockKey();
     location.replace(config.basePath);
   })();
 });

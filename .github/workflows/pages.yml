@@ -81,9 +81,10 @@ jobs:
       # `npm run sync:app`, because texCompiler is private and this public workflow has no
       # token to check it out. A missing bundle would deploy a site that signs you in and
       # then cannot open anything, so it fails here instead.
-      - name: The editor bundle must be present
+      - name: The encrypted editor bundle must be present, and no plaintext beside it
         run: |
-          if [ ! -f public/app/manifest.json ]; then
+          set -euo pipefail
+          if [ ! -f public/app-locked/envelope.json ]; then
             {
               echo "## The editor bundle is missing"
               echo
@@ -91,24 +92,42 @@ jobs:
               echo
               echo '```'
               echo 'cd ../texCompiler && node scripts/build-protected-app.mjs'
-              echo 'cd ../LaTeXRenderer && npm run sync:app && git add public/app && git commit'
+              echo 'cd ../LaTeXRenderer && npm run sync:app && npm run lock:app'
+              echo 'git add public/app-locked && git commit'
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
-            echo "::error title=Missing editor bundle::public/app/manifest.json not found."
+            echo "::error title=Missing editor bundle::public/app-locked/envelope.json not found."
             exit 1
           fi
+
+          # Plaintext next to the ciphertext would make the password gate pointless: anyone
+          # could load the unencrypted bundle directly and never be asked.
+          if find public -name '*.js' -o -name '*.css' | grep -q .; then
+            echo "::error title=Plaintext bundle present::Unencrypted .js/.css found under public/."
+            find public -name '*.js' -o -name '*.css'
+            exit 1
+          fi
+
           node -e "
-            const m = require('./public/app/manifest.json');
-            const fs = require('fs'), crypto = require('crypto');
-            for (const a of m.assets) {
-              const b = fs.readFileSync('public/app/' + a.path);
-              const d = crypto.createHash('sha256').update(b).digest('hex');
-              if (d !== a.sha256) {
-                console.error('::error::' + a.path + ' does not match its manifest digest');
+            const e = require('./public/app-locked/envelope.json');
+            const fs = require('fs');
+            if (!e.encrypted || e.algorithm !== 'AES-256-GCM') {
+              console.error('::error::envelope is not AES-256-GCM'); process.exit(1);
+            }
+            if (e.kdf.iterations < 310000) {
+              console.error('::error::KDF iterations below the 310000 floor'); process.exit(1);
+            }
+            for (const a of e.assets) {
+              const p = 'public/app-locked/' + a.file;
+              if (!fs.existsSync(p)) { console.error('::error::missing ' + p); process.exit(1); }
+              const n = fs.statSync(p).size;
+              if (n !== a.encryptedSize) {
+                console.error('::error::' + a.file + ' is ' + n + ' bytes, envelope says ' + a.encryptedSize);
                 process.exit(1);
               }
             }
-            console.log('editor bundle ' + m.buildId + ', ' + m.assets.length + ' assets, digests verified');
+            console.log('locked bundle ' + e.buildId + ', ' + e.assets.length + ' assets, ' +
+                        e.kdf.iterations + ' KDF iterations');
           "
 
       # Supabase is OPTIONAL. Without it the site runs in direct mode: Google sign-in in

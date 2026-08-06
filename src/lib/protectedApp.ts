@@ -40,6 +40,210 @@ export interface ProtectedManifest {
   assets: ManifestAsset[];
 }
 
+// ---------------------------------------------------------------------------
+// encrypted bundle (direct mode)
+// ---------------------------------------------------------------------------
+
+export interface LockedEnvelope {
+  schemaVersion: number;
+  encrypted: true;
+  algorithm: "AES-256-GCM";
+  kdf: { name: "PBKDF2"; hash: "SHA-256"; iterations: number; saltB64: string };
+  ivBytes: number;
+  tagBytes: number;
+  buildId: string;
+  entry: string;
+  styles: string[];
+  worker: string | null;
+  assets: Array<{
+    path: string;
+    file: string;
+    sha256: string;
+    size: number;
+    contentType: string;
+    encryptedSize: number;
+  }>;
+}
+
+export class WrongPasswordError extends Error {
+  constructor() {
+    super("That password did not unlock the application.");
+    this.name = "WrongPasswordError";
+  }
+}
+
+function b64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+export async function fetchEnvelope(basePath: string): Promise<LockedEnvelope> {
+  const root = `${basePath.replace(/\/+$/, "")}/app-locked/`;
+  const response = await fetch(`${root}envelope.json`, { cache: "no-cache" });
+  if (!response.ok) {
+    throw new Error(
+      `The editor is not published with this site (HTTP ${response.status} for ` +
+        `${root}envelope.json).\n\nRun "npm run sync:app" then "npm run lock:app" and redeploy.`,
+    );
+  }
+  const envelope = (await response.json()) as LockedEnvelope;
+  if (!envelope?.encrypted || envelope.algorithm !== "AES-256-GCM") {
+    throw new Error("The published envelope is not in a format this shell understands.");
+  }
+  if (envelope.kdf.iterations < 100_000) {
+    // A weakened envelope would make offline brute force far cheaper. Refuse it.
+    throw new Error("The published envelope uses too few KDF iterations. Refusing to unlock.");
+  }
+  return envelope;
+}
+
+/** Derives the unlock key. Deliberately slow — that cost is the whole defence. */
+export async function deriveUnlockKey(
+  password: string,
+  envelope: LockedEnvelope,
+): Promise<CryptoKey> {
+  const material = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(password),
+    "PBKDF2",
+    false,
+    ["deriveKey"],
+  );
+  return crypto.subtle.deriveKey(
+    {
+      name: "PBKDF2",
+      salt: b64ToBytes(envelope.kdf.saltB64).slice(),
+      iterations: envelope.kdf.iterations,
+      hash: "SHA-256",
+    },
+    material,
+    { name: "AES-GCM", length: 256 },
+    // Extractable so the key can be cached in sessionStorage for the life of the tab,
+    // sparing a 310 000-iteration derivation on every reload. sessionStorage dies with
+    // the tab and is same-origin, and anyone who can read it can already read the running
+    // application — so caching costs nothing that was not already exposed. It is cleared
+    // on sign-out and on lock.
+    true,
+    ["decrypt"],
+  );
+}
+
+const UNLOCK_KEY_STORAGE = "underrock.unlock";
+
+export async function cacheUnlockKey(key: CryptoKey, buildId: string): Promise<void> {
+  try {
+    const raw = await crypto.subtle.exportKey("raw", key);
+    const b64 = btoa(String.fromCharCode(...new Uint8Array(raw)));
+    sessionStorage.setItem(UNLOCK_KEY_STORAGE, JSON.stringify({ buildId, k: b64 }));
+  } catch {
+    /* Caching is a convenience; failure just means the password is asked for again. */
+  }
+}
+
+export async function cachedUnlockKey(buildId: string): Promise<CryptoKey | null> {
+  try {
+    const raw = sessionStorage.getItem(UNLOCK_KEY_STORAGE);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { buildId: string; k: string };
+    // A new build means new ciphertext; a stale key must not be tried against it.
+    if (parsed.buildId !== buildId) {
+      sessionStorage.removeItem(UNLOCK_KEY_STORAGE);
+      return null;
+    }
+    return await crypto.subtle.importKey(
+      "raw",
+      b64ToBytes(parsed.k).slice(),
+      { name: "AES-GCM", length: 256 },
+      true,
+      ["decrypt"],
+    );
+  } catch {
+    return null;
+  }
+}
+
+export function clearUnlockKey(): void {
+  try {
+    sessionStorage.removeItem(UNLOCK_KEY_STORAGE);
+  } catch {
+    /* nothing to do */
+  }
+}
+
+/**
+ * Decrypts every asset and turns the result into an ordinary manifest.
+ *
+ * Two independent checks have to pass. AES-GCM authenticates the ciphertext, so a wrong
+ * password fails the tag rather than yielding plausible garbage; and the decrypted bytes
+ * are then hashed against the digest recorded at build time, so a correct password that
+ * somehow produced unexpected content is still refused.
+ */
+export async function unlockManifest(
+  envelope: LockedEnvelope,
+  key: CryptoKey,
+  basePath: string,
+  onProgress?: (done: number, total: number, path: string) => void,
+): Promise<{ manifest: ProtectedManifest; plaintext: Map<string, ArrayBuffer> }> {
+  const root = `${basePath.replace(/\/+$/, "")}/app-locked/`;
+  const plaintext = new Map<string, ArrayBuffer>();
+  const assets: ManifestAsset[] = [];
+  let done = 0;
+
+  for (const asset of envelope.assets) {
+    if (asset.file.includes("..") || asset.file.startsWith("/")) {
+      throw new Error(`Refusing an unsafe envelope path: ${asset.file}`);
+    }
+    const response = await fetch(root + asset.file, { cache: "force-cache" });
+    if (!response.ok) {
+      throw new Error(`Could not download ${asset.file} (HTTP ${response.status}).`);
+    }
+    const packed = new Uint8Array(await response.arrayBuffer());
+
+    // iv || ciphertext || tag  — WebCrypto wants the tag appended to the ciphertext.
+    const iv = packed.slice(0, envelope.ivBytes);
+    const body = packed.slice(envelope.ivBytes);
+
+    let decrypted: ArrayBuffer;
+    try {
+      decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, body);
+    } catch {
+      // The GCM tag failed. Overwhelmingly the wrong password.
+      throw new WrongPasswordError();
+    }
+
+    const actual = await sha256Hex(decrypted);
+    if (actual !== asset.sha256 || decrypted.byteLength !== asset.size) {
+      throw new IntegrityError(asset.path, asset.sha256, actual);
+    }
+
+    plaintext.set(asset.path, decrypted);
+    assets.push({
+      path: asset.path,
+      sha256: asset.sha256,
+      size: asset.size,
+      contentType: asset.contentType,
+      url: "", // never fetched again; the bytes are already in memory
+    });
+    onProgress?.(++done, envelope.assets.length, asset.path);
+  }
+
+  return {
+    manifest: {
+      ok: true,
+      buildId: envelope.buildId,
+      entry: envelope.entry,
+      styles: envelope.styles ?? [],
+      worker: envelope.worker ?? null,
+      expiresInSeconds: 0,
+      grantExpiresAt: "",
+      assets,
+    },
+    plaintext,
+  };
+}
+
 /**
  * Builds a manifest for DIRECT mode, where the editor ships alongside the shell on this
  * same GitHub Pages site instead of coming from a private bucket.
@@ -249,6 +453,15 @@ function objectUrl(bytes: ArrayBuffer, type: string): string {
 
 export interface LoadOptions {
   onProgress?: (loaded: number, total: number, path: string) => void;
+  /**
+   * Already-verified bytes, keyed by asset path.
+   *
+   * Used by the encrypted direct-mode path, where decryption has already produced and
+   * hash-checked the plaintext. Supplying them here avoids a pointless second fetch of
+   * URLs that do not exist, and keeps exactly one code path responsible for injecting
+   * and executing the application.
+   */
+  preloaded?: Map<string, ArrayBuffer>;
 }
 
 /**
@@ -266,6 +479,16 @@ export async function startProtectedApp(
 
   const verified = new Map<string, ArrayBuffer>();
   for (const asset of manifest.assets) {
+    const already = options.preloaded?.get(asset.path);
+    if (already) {
+      // Decrypted and hash-checked by unlockManifest(); re-verify the digest rather than
+      // trusting the caller, so this function never executes unverified bytes.
+      const actual = await sha256Hex(already);
+      if (actual !== asset.sha256) throw new IntegrityError(asset.path, asset.sha256, actual);
+      verified.set(asset.path, already);
+      options.onProgress?.(++loaded, total, asset.path);
+      continue;
+    }
     const bytes = await fetchVerified(asset, (path) => {
       loaded += 1;
       options.onProgress?.(loaded, total, path);

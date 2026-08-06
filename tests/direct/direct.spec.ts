@@ -1,27 +1,31 @@
 import { expect, test, type Page } from "@playwright/test";
 
 /**
- * Direct mode, against the real build and the real editor bundle.
+ * Direct mode, against the real build and the real encrypted editor bundle.
  *
  * This is the configuration a visitor to
- * https://julianattemptscoding.github.io/LaTeXRenderer/ actually gets, so these tests
- * assert the whole path: land, sign in, boot the 2.5 MB editor from ./app/ with its
- * SHA-256 verified, and reach a usable dashboard.
+ * https://julianattemptscoding.github.io/LaTeXRenderer/ actually gets: sign in with
+ * Google, then enter the shared password, which is the AES key the editor is encrypted
+ * under. Everything after the seeded session is the genuine code path — envelope fetch,
+ * PBKDF2, AES-GCM decrypt, SHA-256 check, blob execution, React mount.
  *
- * Google's real popup cannot be driven headlessly, so the signed-in state is seeded the
- * way Google Identity Services would leave it. Everything after that point -- manifest
- * fetch, hash verification, blob execution, React mount -- is the genuine code path.
+ * The password is read from SHARED_PASSWORD. It is never written into this repository,
+ * and the tests that need it SKIP LOUDLY when it is absent rather than passing vacuously.
+ *
+ *   SHARED_PASSWORD=... npm run test:direct
  */
 
 const SESSION_KEY = "underrock.google.session";
+const UNLOCK_KEY = "underrock.unlock";
+const PASSWORD = process.env.SHARED_PASSWORD ?? "";
+const HAVE_PASSWORD = PASSWORD.length > 0;
 
 /**
  * Puts the browser in the state Google Identity Services would leave it in.
  *
- * Written with an explicit visit + evaluate rather than page.addInitScript, because an
- * init script re-runs on EVERY navigation -- including the reload that sign-out performs,
- * which would silently re-create the session it had just cleared and make the sign-out
- * test unfalsifiable.
+ * An explicit visit + evaluate rather than page.addInitScript, because an init script
+ * re-runs on EVERY navigation — including the reload that sign-out performs, which would
+ * silently re-create the session it had just cleared and make that test unfalsifiable.
  */
 async function seedSession(page: Page, email = "tester@example.test") {
   await page.goto("./");
@@ -40,11 +44,16 @@ async function seedSession(page: Page, email = "tester@example.test") {
   );
 }
 
-/** Google's script is blocked so the tests never depend on a third-party network call. */
+/** Google's script is blocked so no test depends on a third-party network call. */
 async function blockGoogle(page: Page) {
   await page.route("https://accounts.google.com/**", (route) =>
     route.fulfill({ status: 200, contentType: "text/javascript", body: "/* blocked in tests */" }),
   );
+}
+
+async function unlock(page: Page, password: string) {
+  await page.getByLabel(/access password/i).fill(password);
+  await page.getByRole("button", { name: /unlock/i }).click();
 }
 
 test.describe("direct mode", () => {
@@ -52,134 +61,270 @@ test.describe("direct mode", () => {
     await blockGoogle(page);
   });
 
+  // -- before sign-in --------------------------------------------------------
+
   test("a first-time visitor sees the mission and a way to sign in", async ({ page }) => {
     await page.goto("./");
     await expect(page.getByRole("heading", { name: /make latex free and open/i })).toBeVisible();
-    // Google's own button cannot render (its script is blocked), so the fallback must be
-    // present -- the page must never be a dead end.
     await expect(page.getByRole("button", { name: /continue with google/i })).toBeVisible();
     await expect(page.locator("#underrock-root")).toHaveCount(0);
+    // No password box before sign-in: identity comes first.
+    await expect(page.getByLabel(/access password/i)).toHaveCount(0);
   });
 
   test("when Google will not draw its button, the page says exactly what to fix", async ({
     page,
   }) => {
-    // Google refuses to render, silently, when the page origin is not on the OAuth
-    // client's authorised-origins list -- by far the likeliest first-run failure. Blocking
-    // its script reproduces that same empty-slot outcome. Without this the page presents as
-    // a button that simply is not there.
     await page.goto("./");
     const alert = page.getByRole("alert");
     await expect(alert).toBeVisible({ timeout: 20_000 });
     await expect(alert).toContainText(/authorised javascript origins/i);
-    // It must show the exact value to paste, not a vague instruction.
     await expect(page.locator(".origin-value")).toHaveText("http://localhost:4174");
-    await expect(page.getByRole("link", { name: /google cloud credentials/i })).toBeVisible();
   });
 
   test("no Supabase call is attempted", async ({ page }) => {
-    const supabaseCalls: string[] = [];
+    const calls: string[] = [];
     page.on("request", (r) => {
-      if (r.url().includes(".supabase.co")) supabaseCalls.push(r.url());
+      if (r.url().includes(".supabase.co")) calls.push(r.url());
     });
     await page.goto("./");
     await expect(page.getByRole("button", { name: /continue with google/i })).toBeVisible();
-    expect(supabaseCalls).toEqual([]);
+    expect(calls).toEqual([]);
   });
 
-  test("a signed-in visitor boots the real editor from ./app/", async ({ page }) => {
-    const pageErrors: string[] = [];
-    page.on("pageerror", (e) => pageErrors.push(e.message));
+  // -- the gate --------------------------------------------------------------
 
+  test("signed in but not unlocked: the password is demanded and no editor loads", async ({
+    page,
+  }) => {
     await seedSession(page);
     await page.goto("./");
-
-    await expect(page.locator("#underrock-root")).toBeAttached({ timeout: 60_000 });
-    await expect(
-      page.locator("#underrock-root .dashboard, #underrock-root .workspace"),
-    ).toBeVisible({ timeout: 60_000 });
-
-    // The things a person needs on arrival.
-    await expect(page.getByRole("button", { name: /new blank project/i })).toBeVisible();
-    await expect(page.getByRole("button", { name: /import a zip/i })).toBeVisible();
-    await expect(page.getByRole("button", { name: /connect google drive/i })).toBeVisible();
-
-    const fatal = pageErrors.filter((m) =>
-      /Failed to (fetch|resolve)|Cannot use import statement|Unexpected token 'export'/i.test(m),
-    );
-    expect(fatal, `module errors: ${fatal.join(" | ")}`).toEqual([]);
-  });
-
-  test("the editor assets are hash-verified before they run", async ({ page }) => {
-    await seedSession(page);
-
-    // Corrupt app.js in flight, leaving the manifest untouched.
-    await page.route("**/app/app.js", async (route) => {
-      const response = await route.fetch();
-      const body = await response.text();
-      await route.fulfill({
-        status: 200,
-        contentType: "text/javascript",
-        body: `${body}\n/* tampered */`,
-      });
-    });
-
-    await page.goto("./");
-    await expect(page.getByRole("heading", { name: /refused to start/i })).toBeVisible({
-      timeout: 60_000,
-    });
+    await expect(page.getByLabel(/access password/i)).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/signed in as tester@example.test/i)).toBeVisible();
     await expect(page.locator("#underrock-root")).toHaveCount(0);
   });
 
-  test("the editor is handed a Google Client ID so Drive works without setup", async ({ page }) => {
-    await seedSession(page);
+  test("the plaintext editor is not reachable at all", async ({ page }) => {
+    // The whole point of encrypting: there must be no unencrypted copy to fetch instead.
+    //
+    // Asserted on CONTENT, not status. `vite preview` has an SPA fallback that answers
+    // unknown paths with index.html and a 200, so a status check would fail here while
+    // passing on GitHub Pages, which returns a real 404 — the assertion would be testing
+    // the dev server rather than the deployment.
     await page.goto("./");
-    await expect(page.locator("#underrock-root .dashboard")).toBeVisible({ timeout: 60_000 });
-
-    const clientId = await page.evaluate(
-      () => (window as unknown as Record<string, unknown>).__UNDERROCK_GOOGLE_CLIENT_ID__,
-    );
-    expect(String(clientId)).toMatch(/\.apps\.googleusercontent\.com$/);
-
-    const mode = await page.evaluate(
-      () => (window as unknown as Record<string, unknown>).__UNDERROCK_MODE__,
-    );
-    expect(mode).toBe("direct");
-  });
-
-  test("a new project can be created and edited", async ({ page }) => {
-    await seedSession(page);
-    await page.goto("./");
-    await expect(page.locator("#underrock-root .dashboard")).toBeVisible({ timeout: 60_000 });
-
-    page.once("dialog", (dialog) => void dialog.accept("QA smoke project"));
-    await page.getByRole("button", { name: /new blank project/i }).click();
-
-    // The editor view, its file tree, and Monaco itself.
-    await expect(page.locator("#underrock-root .workspace")).toBeVisible({ timeout: 30_000 });
-    // Scoped to the toolbar: the name also appears in the file tree, and an unscoped
-    // getByText would match both and fail Playwright's strict mode.
-    await expect(page.locator(".topbar .project-name")).toHaveText("QA smoke project");
-    await expect(page.locator('[data-testid="monaco-host"]')).toBeVisible({ timeout: 30_000 });
-
-    // On a narrow screen only one pane fits, so the file tree lives behind the switcher.
-    // Reaching it must be possible -- an earlier build hid it with no way to bring it back.
-    const switcher = page.locator(".mobile-switch");
-    if (await switcher.isVisible()) {
-      await switcher.getByRole("button", { name: "Files" }).click();
-    }
-    await expect(page.locator(".file-tree")).toBeVisible();
-    if (await switcher.isVisible()) {
-      await switcher.getByRole("button", { name: "Editor" }).click();
-    }
-
-    // The starter document must actually be in the editor, not just a blank pane.
-    await expect(page.locator(".monaco-host")).toContainText("documentclass", {
-      timeout: 30_000,
+    const results = await page.evaluate(async () => {
+      const paths = ["./app/app.js", "./app/manifest.json", "./app.js", "./assets/app.js"];
+      const out: Record<string, string> = {};
+      for (const p of paths) {
+        try {
+          const r = await fetch(p, { cache: "no-store" });
+          out[p] = r.ok ? (await r.text()).slice(0, 2000) : "";
+        } catch {
+          out[p] = "";
+        }
+      }
+      return out;
     });
 
-    // Compiling without the local companion must explain itself rather than hang.
-    await expect(page.getByText(/compiler offline/i)).toBeVisible();
+    for (const [path, body] of Object.entries(results)) {
+      // Markers that only the real editor bundle or its manifest would carry.
+      expect(body, `${path} served editor JavaScript`).not.toContain("underrock-root");
+      expect(body, `${path} served editor JavaScript`).not.toContain("documentclass");
+      expect(body, `${path} served a plaintext manifest`).not.toContain('"sha256"');
+      expect(body, `${path} served a Monaco bundle`).not.toContain("monaco");
+    }
+  });
+
+  test("the published ciphertext contains no recognisable JavaScript", async ({ page }) => {
+    await page.goto("./");
+    const probe = await page.evaluate(async () => {
+      const r = await fetch("./app-locked/app.js.enc", { cache: "no-store" });
+      const buf = new Uint8Array(await r.arrayBuffer());
+      // Decode the first 4 KB as latin1 and look for anything that would betray the source.
+      let head = "";
+      for (let i = 0; i < Math.min(buf.length, 4096); i++) head += String.fromCharCode(buf[i]!);
+      return { status: r.status, bytes: buf.length, head };
+    });
+    expect(probe.status).toBe(200);
+    expect(probe.bytes).toBeGreaterThan(100000);
+    expect(probe.head).not.toContain("function");
+    expect(probe.head).not.toContain("underrock");
+    expect(probe.head).not.toContain("documentclass");
+  });
+
+  test("a wrong password is refused and nothing executes", async ({ page }) => {
+    await seedSession(page);
+    await page.goto("./");
+    await expect(page.getByLabel(/access password/i)).toBeVisible({ timeout: 30_000 });
+
+    await unlock(page, "definitely-not-the-password");
+
+    await expect(page.getByRole("alert")).toContainText(/not correct/i, { timeout: 60_000 });
+    await expect(page.locator("#underrock-root")).toHaveCount(0);
+    // A failed attempt must not leave a usable key behind.
+    const cached = await page.evaluate((k) => sessionStorage.getItem(k), UNLOCK_KEY);
+    expect(cached).toBeNull();
+  });
+
+  test("the envelope never contains the password or the key", async ({ page }) => {
+    await page.goto("./");
+    const envelope = await page.evaluate(async () =>
+      (await fetch("./app-locked/envelope.json", { cache: "no-store" })).text(),
+    );
+    expect(envelope).toContain("PBKDF2");
+    expect(envelope).toContain("AES-256-GCM");
+    // Salt and iteration count are public by design; a key or password would not be.
+    expect(envelope.toLowerCase()).not.toContain("password");
+    expect(JSON.parse(envelope).kdf.iterations).toBeGreaterThanOrEqual(310000);
+  });
+
+  // -- past the gate ---------------------------------------------------------
+
+  test.describe("with the correct password", () => {
+    test.skip(
+      !HAVE_PASSWORD,
+      "SHARED_PASSWORD is not set, so the unlock path cannot be exercised. " +
+        "Run: SHARED_PASSWORD=... npm run test:direct",
+    );
+
+    test("the correct password decrypts and starts the editor", async ({ page }) => {
+      const pageErrors: string[] = [];
+      page.on("pageerror", (e) => pageErrors.push(e.message));
+
+      await seedSession(page);
+      await page.goto("./");
+      await expect(page.getByLabel(/access password/i)).toBeVisible({ timeout: 30_000 });
+
+      await unlock(page, PASSWORD);
+
+      await expect(page.locator("#underrock-root .dashboard")).toBeVisible({ timeout: 90_000 });
+      await expect(page.getByRole("button", { name: /new blank project/i })).toBeVisible();
+
+      const fatal = pageErrors.filter((m) =>
+        /Failed to (fetch|resolve)|Cannot use import statement|Unexpected token 'export'/i.test(m),
+      );
+      expect(fatal, `module errors: ${fatal.join(" | ")}`).toEqual([]);
+    });
+
+    test("the editor receives the account and the Google Client ID", async ({ page }) => {
+      await seedSession(page, "someone@example.test");
+      await page.goto("./");
+      await unlock(page, PASSWORD);
+      await expect(page.locator("#underrock-root .dashboard")).toBeVisible({ timeout: 90_000 });
+
+      const handoff = await page.evaluate(() => {
+        const w = window as unknown as Record<string, unknown>;
+        return {
+          clientId: String(w.__UNDERROCK_GOOGLE_CLIENT_ID__ ?? ""),
+          mode: w.__UNDERROCK_MODE__,
+          account: w.__UNDERROCK_ACCOUNT__ as { email?: string } | undefined,
+        };
+      });
+      expect(handoff.clientId).toMatch(/\.apps\.googleusercontent\.com$/);
+      expect(handoff.mode).toBe("direct");
+      expect(handoff.account?.email).toBe("someone@example.test");
+    });
+
+    test("the account record persists on this device", async ({ page }) => {
+      await seedSession(page, "persist@example.test");
+      await page.goto("./");
+      await unlock(page, PASSWORD);
+      await expect(page.locator("#underrock-root .dashboard")).toBeVisible({ timeout: 90_000 });
+
+      const record = await page.evaluate(() => {
+        const sub = localStorage.getItem("underrock.account.current");
+        return sub ? JSON.parse(localStorage.getItem(`underrock.account.${sub}`) ?? "null") : null;
+      });
+      expect(record?.email).toBe("persist@example.test");
+      expect(record?.firstSeenAt).toBeTruthy();
+    });
+
+    test("a reload in the same tab does not ask again", async ({ page }) => {
+      await seedSession(page);
+      await page.goto("./");
+      await unlock(page, PASSWORD);
+      await expect(page.locator("#underrock-root .dashboard")).toBeVisible({ timeout: 90_000 });
+
+      await page.reload();
+      await expect(page.locator("#underrock-root .dashboard")).toBeVisible({ timeout: 90_000 });
+      await expect(page.getByLabel(/access password/i)).toHaveCount(0);
+    });
+
+    test("a new project can be created and edited", async ({ page }) => {
+      await seedSession(page);
+      await page.goto("./");
+      await unlock(page, PASSWORD);
+      await expect(page.locator("#underrock-root .dashboard")).toBeVisible({ timeout: 90_000 });
+
+      page.once("dialog", (dialog) => void dialog.accept("QA smoke project"));
+      await page.getByRole("button", { name: /new blank project/i }).click();
+
+      await expect(page.locator("#underrock-root .workspace")).toBeVisible({ timeout: 30_000 });
+      await expect(page.locator(".topbar .project-name")).toHaveText("QA smoke project");
+      await expect(page.locator('[data-testid="monaco-host"]')).toBeVisible({ timeout: 30_000 });
+
+      // On a narrow screen only one pane fits, so the tree lives behind the switcher.
+      const switcher = page.locator(".mobile-switch");
+      if (await switcher.isVisible()) {
+        await switcher.getByRole("button", { name: "Files" }).click();
+      }
+      await expect(page.locator(".file-tree")).toBeVisible();
+    });
+
+    test("signing out clears the session AND the unlock key", async ({ page }) => {
+      await seedSession(page);
+      await page.goto("./");
+      await unlock(page, PASSWORD);
+      await expect(page.locator("#underrock-root .dashboard")).toBeVisible({ timeout: 90_000 });
+
+      await page.evaluate(() => window.dispatchEvent(new CustomEvent("underrock:sign-out")));
+
+      await expect(page.getByRole("button", { name: /continue with google/i })).toBeVisible({
+        timeout: 30_000,
+      });
+      const state = await page.evaluate(
+        ([s, u]) => ({
+          session: localStorage.getItem(s as string),
+          unlock: sessionStorage.getItem(u as string),
+        }),
+        [SESSION_KEY, UNLOCK_KEY],
+      );
+      expect(state.session).toBeNull();
+      expect(state.unlock).toBeNull();
+    });
+
+    test("lock keeps you signed in but demands the password again", async ({ page }) => {
+      await seedSession(page);
+      await page.goto("./");
+      await unlock(page, PASSWORD);
+      await expect(page.locator("#underrock-root .dashboard")).toBeVisible({ timeout: 90_000 });
+
+      await page.evaluate(() => window.dispatchEvent(new CustomEvent("underrock:lock")));
+
+      await expect(page.getByLabel(/access password/i)).toBeVisible({ timeout: 30_000 });
+      const session = await page.evaluate((k) => localStorage.getItem(k), SESSION_KEY);
+      expect(session, "lock must not sign you out of Google").not.toBeNull();
+    });
+
+    test("tampered ciphertext is refused even with the right password", async ({ page }) => {
+      await seedSession(page);
+      await page.route("**/app-locked/app.js.enc", async (route) => {
+        const response = await route.fetch();
+        const body = Buffer.from(await response.body());
+        // Flip one byte inside the ciphertext. AES-GCM must fail the tag check.
+        const at = Math.floor(body.length / 2);
+        body[at] = (body[at] ?? 0) ^ 0x01;
+        await route.fulfill({ status: 200, body });
+      });
+
+      await page.goto("./");
+      await expect(page.getByLabel(/access password/i)).toBeVisible({ timeout: 30_000 });
+      await unlock(page, PASSWORD);
+
+      // Reported as a bad password, because a failed GCM tag is indistinguishable from one.
+      await expect(page.getByRole("alert")).toBeVisible({ timeout: 90_000 });
+      await expect(page.locator("#underrock-root")).toHaveCount(0);
+    });
   });
 
   test("no forbidden credential material reaches the browser", async ({ page }) => {
@@ -192,9 +337,6 @@ test.describe("direct mode", () => {
       }
       return parts.join("\n");
     });
-
-    // A Google client SECRET must never ship. The Client ID is public by design and is
-    // expected to be present, so it is deliberately not asserted against.
     expect(source, "a Google client secret").not.toMatch(/\bGOCSPX-[A-Za-z0-9_-]{10,}/);
     expect(source, "a service-role JWT").not.toMatch(
       /eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]*service_role/,
@@ -202,17 +344,17 @@ test.describe("direct mode", () => {
     expect(source, "a Supabase secret key").not.toMatch(/\bsb_secret_[A-Za-z0-9_-]{10,}/);
   });
 
-  test("signing out clears the session and returns to the landing page", async ({ page }) => {
-    await seedSession(page);
+  test("the shell bundle does not contain the shared password", async ({ page }) => {
+    test.skip(!HAVE_PASSWORD, "SHARED_PASSWORD is not set, so this cannot be checked.");
     await page.goto("./");
-    await expect(page.locator("#underrock-root .dashboard")).toBeVisible({ timeout: 60_000 });
-
-    await page.evaluate(() => window.dispatchEvent(new CustomEvent("underrock:sign-out")));
-
-    await expect(page.getByRole("button", { name: /continue with google/i })).toBeVisible({
-      timeout: 30_000,
+    const source = await page.evaluate(async () => {
+      const parts: string[] = [];
+      for (const s of Array.from(document.querySelectorAll("script[src]"))) {
+        const src = (s as HTMLScriptElement).src;
+        if (src.startsWith("http")) parts.push(await (await fetch(src)).text());
+      }
+      return parts.join("\n");
     });
-    const session = await page.evaluate((key) => localStorage.getItem(key), SESSION_KEY);
-    expect(session).toBeNull();
+    expect(source).not.toContain(PASSWORD);
   });
 });

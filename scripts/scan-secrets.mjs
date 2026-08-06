@@ -31,6 +31,7 @@ if (process.argv.includes("--include-dist")) {
 const BINARY_EXT = new Set([
   ".png", ".jpg", ".jpeg", ".gif", ".ico", ".woff", ".woff2", ".ttf", ".eot",
   ".pdf", ".zip", ".gz", ".wasm", ".exe", ".dll", ".so", ".dylib", ".pyc",
+  ".enc",
 ]);
 
 /** @type {{name: string, re: RegExp, why: string}[]} */

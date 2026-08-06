@@ -6,6 +6,7 @@
 # every digest, and the site would show "Refused to start" with no obvious cause. Marking
 # these paths binary disables conversion in both directions, on every platform.
 public/app/** -text -diff
+public/app-locked/** -text -diff
 
 # Everything else may be normalised to LF in the repository and checked out natively.
 * text=auto eol=lf

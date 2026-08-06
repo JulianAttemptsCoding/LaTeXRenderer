@@ -178,8 +178,8 @@ export function passwordView(
     el(
       "p",
       { id: "password-help", class: "muted small" },
-      "The site owner shares this with the ten people who may use UnderRock. " +
-        "It is checked on the server; typing it here is the only way in.",
+      "This unlocks the editor. The application is stored encrypted and this password is " +
+        "the key — without it there is nothing to run, not merely a check to pass.",
     ),
     el(
       "button",
@@ -191,7 +191,7 @@ export function passwordView(
   return shell(
     wordmark(),
     el("h1", {}, "Enter the access password"),
-    el("p", { class: "muted small" }, `Signed in as ${email}`),
+    el("p", { class: "signed-in-as" }, `Signed in as ${email}`),
     state.lockedMinutes
       ? el(
           "div",

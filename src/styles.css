@@ -205,6 +205,17 @@ p {
   border-color: transparent;
 }
 
+.signed-in-as {
+  font-size: 0.85rem;
+  color: var(--fg-muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.3rem 0.8rem;
+  display: inline-block;
+  margin: 0 auto;
+}
+
 .origin-value {
   display: block;
   margin: 0.5rem 0;
