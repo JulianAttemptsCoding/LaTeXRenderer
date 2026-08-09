@@ -6,11 +6,11 @@
     "name": "PBKDF2",
     "hash": "SHA-256",
     "iterations": 310000,
-    "saltB64": "x3XtqkOOOv7DRjnuTf1mPvzvGE2m3lBFDrataI/Nhs8="
+    "saltB64": "ReDwuFwNtVh/rXGam3Ld0tqXdaWdZO1d8lU+WaAhZ6Q="
   },
   "ivBytes": 12,
   "tagBytes": 16,
-  "buildId": "d6d3b01823949379",
+  "buildId": "f1a4458767433b79",
   "entry": "app.js",
   "styles": [
     "app.css"
@@ -28,10 +28,10 @@
     {
       "path": "app.js",
       "file": "app.js.enc",
-      "sha256": "ad81b96d49c36d137b380f79a591eac4a23ec6e6e2a6bb33b2fe27da6b24dfcf",
-      "size": 2859333,
+      "sha256": "ecb1408edb4550634bf1ff9649cad908baa14ebd7e8937f00e2f0663a394902c",
+      "size": 2859571,
       "contentType": "text/javascript",
-      "encryptedSize": 2859361
+      "encryptedSize": 2859599
     },
     {
       "path": "editor.worker.js",
