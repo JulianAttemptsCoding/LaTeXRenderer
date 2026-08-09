@@ -6,16 +6,17 @@
     "name": "PBKDF2",
     "hash": "SHA-256",
     "iterations": 310000,
-    "saltB64": "ReDwuFwNtVh/rXGam3Ld0tqXdaWdZO1d8lU+WaAhZ6Q="
+    "saltB64": "k+oeQXxZwwbN/n3T27fhfuauyJmTtt4LKamP0MGe4TY="
   },
   "ivBytes": 12,
   "tagBytes": 16,
-  "buildId": "f1a4458767433b79",
+  "buildId": "0d518618394b13db",
   "entry": "app.js",
   "styles": [
     "app.css"
   ],
   "worker": "editor.worker.js",
+  "compilerWorker": "compiler.worker.js",
   "assets": [
     {
       "path": "app.css",
@@ -28,10 +29,18 @@
     {
       "path": "app.js",
       "file": "app.js.enc",
-      "sha256": "ecb1408edb4550634bf1ff9649cad908baa14ebd7e8937f00e2f0663a394902c",
-      "size": 2859571,
+      "sha256": "f27baaf39d623e502321e37fe8cd2fe2da4751fa08c6957bc117a47f29c045d7",
+      "size": 2920936,
       "contentType": "text/javascript",
-      "encryptedSize": 2859599
+      "encryptedSize": 2920964
+    },
+    {
+      "path": "compiler.worker.js",
+      "file": "compiler.worker.js.enc",
+      "sha256": "1cb22a0915afa5aa0d81c9d38aa449b9ca8cd3162ddfc406cdddef837b512d5c",
+      "size": 97810,
+      "contentType": "text/javascript",
+      "encryptedSize": 97838
     },
     {
       "path": "editor.worker.js",
