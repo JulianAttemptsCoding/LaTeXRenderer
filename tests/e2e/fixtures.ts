@@ -168,7 +168,7 @@ export async function signIn(page: Page, state: ServerState, email = "tester@exa
       window.localStorage.setItem(key as string, value as string);
     },
     [
-      "underrock.auth",
+      "latexrenderer.auth",
       JSON.stringify({
         access_token: "e2e-access-token",
         token_type: "bearer",

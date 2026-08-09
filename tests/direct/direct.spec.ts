@@ -15,8 +15,8 @@ import { expect, test, type Page } from "@playwright/test";
  *   SHARED_PASSWORD=... npm run test:direct
  */
 
-const SESSION_KEY = "underrock.google.session";
-const UNLOCK_KEY = "underrock.unlock";
+const SESSION_KEY = "latexrenderer.google.session";
+const UNLOCK_KEY = "latexrenderer.unlock";
 const PASSWORD = process.env.SHARED_PASSWORD ?? "";
 const HAVE_PASSWORD = PASSWORD.length > 0;
 
@@ -69,14 +69,14 @@ test.describe("direct mode", () => {
     await expect(page.getByRole("heading", { name: /enter the access password/i })).toBeVisible();
     // Identity comes after the gate, so there must be no Google button yet.
     await expect(page.getByRole("button", { name: /continue with google/i })).toHaveCount(0);
-    await expect(page.locator("#underrock-root")).toHaveCount(0);
+    await expect(page.locator("#latexrenderer-root")).toHaveCount(0);
   });
 
   test("even with a signed-in session, the password is still demanded", async ({ page }) => {
     await seedSession(page);
     await page.goto("./");
     await expect(page.getByLabel(/access password/i)).toBeVisible({ timeout: 30_000 });
-    await expect(page.locator("#underrock-root")).toHaveCount(0);
+    await expect(page.locator("#latexrenderer-root")).toHaveCount(0);
   });
 
   test("no Supabase call is attempted", async ({ page }) => {
@@ -113,7 +113,7 @@ test.describe("direct mode", () => {
 
     for (const [path, body] of Object.entries(results)) {
       // Markers that only the real editor bundle or its manifest would carry.
-      expect(body, `${path} served editor JavaScript`).not.toContain("underrock-root");
+      expect(body, `${path} served editor JavaScript`).not.toContain("latexrenderer-root");
       expect(body, `${path} served editor JavaScript`).not.toContain("documentclass");
       expect(body, `${path} served a plaintext manifest`).not.toContain('"sha256"');
       expect(body, `${path} served a Monaco bundle`).not.toContain("monaco");
@@ -133,7 +133,7 @@ test.describe("direct mode", () => {
     expect(probe.status).toBe(200);
     expect(probe.bytes).toBeGreaterThan(100000);
     expect(probe.head).not.toContain("function");
-    expect(probe.head).not.toContain("underrock");
+    expect(probe.head).not.toContain("latexrenderer");
     expect(probe.head).not.toContain("documentclass");
   });
 
@@ -144,7 +144,7 @@ test.describe("direct mode", () => {
     await unlock(page, "definitely-not-the-password");
 
     await expect(page.getByRole("alert")).toContainText(/not correct/i, { timeout: 60_000 });
-    await expect(page.locator("#underrock-root")).toHaveCount(0);
+    await expect(page.locator("#latexrenderer-root")).toHaveCount(0);
     // It must also not have advanced to sign-in: a wrong password gets you nowhere.
     await expect(page.getByRole("button", { name: /continue with google/i })).toHaveCount(0);
     // And it must not leave a usable key behind.
@@ -184,7 +184,7 @@ test.describe("direct mode", () => {
       });
       await expect(page.getByRole("button", { name: /continue with google/i })).toBeVisible();
       // Unlocked, but not signed in, so still no editor.
-      await expect(page.locator("#underrock-root")).toHaveCount(0);
+      await expect(page.locator("#latexrenderer-root")).toHaveCount(0);
       // The key is cached, so a reload must not ask for the password again.
       expect(await page.evaluate((k) => sessionStorage.getItem(k), UNLOCK_KEY)).not.toBeNull();
     });
@@ -201,7 +201,7 @@ test.describe("direct mode", () => {
 
       await unlock(page, PASSWORD);
 
-      await expect(page.locator("#underrock-root .dashboard")).toBeVisible({ timeout: 90_000 });
+      await expect(page.locator("#latexrenderer-root .dashboard")).toBeVisible({ timeout: 90_000 });
       await expect(page.getByRole("button", { name: /new blank project/i })).toBeVisible();
 
       const fatal = pageErrors.filter((m) =>
@@ -214,14 +214,14 @@ test.describe("direct mode", () => {
       await seedSession(page, "someone@example.test");
       await page.goto("./");
       await unlock(page, PASSWORD);
-      await expect(page.locator("#underrock-root .dashboard")).toBeVisible({ timeout: 90_000 });
+      await expect(page.locator("#latexrenderer-root .dashboard")).toBeVisible({ timeout: 90_000 });
 
       const handoff = await page.evaluate(() => {
         const w = window as unknown as Record<string, unknown>;
         return {
-          clientId: String(w.__UNDERROCK_GOOGLE_CLIENT_ID__ ?? ""),
-          mode: w.__UNDERROCK_MODE__,
-          account: w.__UNDERROCK_ACCOUNT__ as { email?: string } | undefined,
+          clientId: String(w.__LATEXRENDERER_GOOGLE_CLIENT_ID__ ?? ""),
+          mode: w.__LATEXRENDERER_MODE__,
+          account: w.__LATEXRENDERER_ACCOUNT__ as { email?: string } | undefined,
         };
       });
       expect(handoff.clientId).toMatch(/\.apps\.googleusercontent\.com$/);
@@ -233,11 +233,11 @@ test.describe("direct mode", () => {
       await seedSession(page, "persist@example.test");
       await page.goto("./");
       await unlock(page, PASSWORD);
-      await expect(page.locator("#underrock-root .dashboard")).toBeVisible({ timeout: 90_000 });
+      await expect(page.locator("#latexrenderer-root .dashboard")).toBeVisible({ timeout: 90_000 });
 
       const record = await page.evaluate(() => {
-        const sub = localStorage.getItem("underrock.account.current");
-        return sub ? JSON.parse(localStorage.getItem(`underrock.account.${sub}`) ?? "null") : null;
+        const sub = localStorage.getItem("latexrenderer.account.current");
+        return sub ? JSON.parse(localStorage.getItem(`latexrenderer.account.${sub}`) ?? "null") : null;
       });
       expect(record?.email).toBe("persist@example.test");
       expect(record?.firstSeenAt).toBeTruthy();
@@ -247,10 +247,10 @@ test.describe("direct mode", () => {
       await seedSession(page);
       await page.goto("./");
       await unlock(page, PASSWORD);
-      await expect(page.locator("#underrock-root .dashboard")).toBeVisible({ timeout: 90_000 });
+      await expect(page.locator("#latexrenderer-root .dashboard")).toBeVisible({ timeout: 90_000 });
 
       await page.reload();
-      await expect(page.locator("#underrock-root .dashboard")).toBeVisible({ timeout: 90_000 });
+      await expect(page.locator("#latexrenderer-root .dashboard")).toBeVisible({ timeout: 90_000 });
       await expect(page.getByLabel(/access password/i)).toHaveCount(0);
     });
 
@@ -258,12 +258,12 @@ test.describe("direct mode", () => {
       await seedSession(page);
       await page.goto("./");
       await unlock(page, PASSWORD);
-      await expect(page.locator("#underrock-root .dashboard")).toBeVisible({ timeout: 90_000 });
+      await expect(page.locator("#latexrenderer-root .dashboard")).toBeVisible({ timeout: 90_000 });
 
       page.once("dialog", (dialog) => void dialog.accept("QA smoke project"));
       await page.getByRole("button", { name: /new blank project/i }).click();
 
-      await expect(page.locator("#underrock-root .workspace")).toBeVisible({ timeout: 30_000 });
+      await expect(page.locator("#latexrenderer-root .workspace")).toBeVisible({ timeout: 30_000 });
       await expect(page.locator(".topbar .project-name")).toHaveText("QA smoke project");
       await expect(page.locator('[data-testid="monaco-host"]')).toBeVisible({ timeout: 30_000 });
 
@@ -279,9 +279,9 @@ test.describe("direct mode", () => {
       await seedSession(page);
       await page.goto("./");
       await unlock(page, PASSWORD);
-      await expect(page.locator("#underrock-root .dashboard")).toBeVisible({ timeout: 90_000 });
+      await expect(page.locator("#latexrenderer-root .dashboard")).toBeVisible({ timeout: 90_000 });
 
-      await page.evaluate(() => window.dispatchEvent(new CustomEvent("underrock:sign-out")));
+      await page.evaluate(() => window.dispatchEvent(new CustomEvent("latexrenderer:sign-out")));
 
       // Both gates re-arm: signing out drops the unlock key too, so the password is the
       // first thing demanded again -- not the Google button.
@@ -315,9 +315,9 @@ test.describe("direct mode", () => {
       await seedSession(page);
       await page.goto("./");
       await unlock(page, PASSWORD);
-      await expect(page.locator("#underrock-root .dashboard")).toBeVisible({ timeout: 90_000 });
+      await expect(page.locator("#latexrenderer-root .dashboard")).toBeVisible({ timeout: 90_000 });
 
-      await page.evaluate(() => window.dispatchEvent(new CustomEvent("underrock:lock")));
+      await page.evaluate(() => window.dispatchEvent(new CustomEvent("latexrenderer:lock")));
 
       await expect(page.getByLabel(/access password/i)).toBeVisible({ timeout: 30_000 });
       const session = await page.evaluate((k) => localStorage.getItem(k), SESSION_KEY);
@@ -341,7 +341,7 @@ test.describe("direct mode", () => {
 
       // Reported as a bad password, because a failed GCM tag is indistinguishable from one.
       await expect(page.getByRole("alert")).toBeVisible({ timeout: 90_000 });
-      await expect(page.locator("#underrock-root")).toHaveCount(0);
+      await expect(page.locator("#latexrenderer-root")).toHaveCount(0);
     });
   });
 

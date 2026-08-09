@@ -1,5 +1,5 @@
 /**
- * UnderRock public shell.
+ * LaTeXRenderer public shell.
  *
  * Served from GitHub Pages, so every byte of it is public. It holds no secret and, in
  * Supabase mode, makes no authorisation decision of its own.
@@ -21,7 +21,7 @@ import { config, FUNCTIONS } from "./config";
 import {
   callFunction,
   currentSession,
-  signInWithGoogle,
+  signInWithGoogleIdToken,
   signOut,
   supabase,
 } from "./lib/supabase";
@@ -31,6 +31,7 @@ import {
   promptOneTap,
   renderSignInButton,
   storedSession,
+  type GoogleCredential,
   type GoogleProfile,
 } from "./lib/googleAuth";
 import {
@@ -66,6 +67,8 @@ if (!root) throw new Error("#root is missing from index.html");
 
 const DIRECT = config.mode === "direct";
 let appRunning = false;
+let pendingSupabasePassword: string | null = null;
+let supabasePasswordVerifiedThisPage = false;
 
 function render(node: HTMLElement): void {
   if (appRunning) return; // never paint over a running editor
@@ -77,18 +80,26 @@ function render(node: HTMLElement): void {
 // ---------------------------------------------------------------------------
 
 function showLanding(error?: string | null): void {
-  render(landingView({ onSignIn: () => void beginSignIn() }, error, { renderGoogleButton: DIRECT }));
+  const googlePopupFlow = DIRECT || pendingSupabasePassword !== null;
+  render(
+    landingView(
+      { onSignIn: () => void beginSignIn() },
+      error,
+      { renderGoogleButton: googlePopupFlow },
+    ),
+  );
 
-  if (!DIRECT) return;
+  if (!googlePopupFlow) return;
 
   // Let Google draw its own button into the slot the view reserved. Google's branding
   // rules require their button, and the popup will not open reliably from a synthetic click.
   const host = document.getElementById(GOOGLE_BUTTON_ID);
   if (!host) return;
 
-  void renderSignInButton(host, (profile, signInError) => {
+  void renderSignInButton(host, (profile, signInError, credential) => {
     if (profile) {
-      void afterDirectSignIn(profile);
+      if (DIRECT) void afterDirectSignIn(profile);
+      else if (credential) void afterSupabaseSignIn(profile, credential);
       return;
     }
     if (!signInError) return;
@@ -119,9 +130,11 @@ function showLanding(error?: string | null): void {
       if (host.isConnected) renderOriginHelp(host, err instanceof Error ? err.message : undefined);
     });
 
-  void promptOneTap((profile) => {
-    if (profile) void afterDirectSignIn(profile);
-  });
+  if (DIRECT) {
+    void promptOneTap((profile) => {
+      if (profile) void afterDirectSignIn(profile);
+    });
+  }
 }
 
 /**
@@ -177,9 +190,7 @@ function renderOriginHelp(host: HTMLElement, detail?: string): void {
 
 async function beginSignIn(): Promise<void> {
   if (!DIRECT) {
-    render(loadingView("Redirecting to Google"));
-    const { error } = await signInWithGoogle();
-    if (error) showLanding(error);
+    showLanding("Use the Google button above to continue securely.");
     return;
   }
 
@@ -191,6 +202,29 @@ async function beginSignIn(): Promise<void> {
   } catch (err) {
     showLanding(err instanceof Error ? err.message : String(err));
   }
+}
+
+async function afterSupabaseSignIn(
+  profile: GoogleProfile,
+  credential: GoogleCredential,
+): Promise<void> {
+  render(loadingView("Verifying your Google account"));
+  const result = await signInWithGoogleIdToken(credential.token, credential.nonce);
+  if (result.error) {
+    showLanding(result.error);
+    return;
+  }
+
+  rememberAccount(profile);
+  const password = pendingSupabasePassword;
+  pendingSupabasePassword = null;
+  if (!password) {
+    showSupabasePasswordGate(profile.email, {
+      error: "Enter the access password again to continue.",
+    });
+    return;
+  }
+  await submitPassword(profile.email, password);
 }
 
 async function afterDirectSignIn(profile: GoogleProfile): Promise<void> {
@@ -210,8 +244,11 @@ async function afterDirectSignIn(profile: GoogleProfile): Promise<void> {
  */
 function rememberAccount(profile: GoogleProfile): void {
   try {
-    const key = `underrock.account.${profile.sub}`;
-    const existing = JSON.parse(localStorage.getItem(key) ?? "{}") as Record<string, unknown>;
+    const key = `latexrenderer.account.${profile.sub}`;
+    const legacyKey = `${["under", "rock.account."].join("")}${profile.sub}`;
+    const existing = JSON.parse(
+      localStorage.getItem(key) ?? localStorage.getItem(legacyKey) ?? "{}",
+    ) as Record<string, unknown>;
     localStorage.setItem(
       key,
       JSON.stringify({
@@ -224,7 +261,9 @@ function rememberAccount(profile: GoogleProfile): void {
         lastSeenAt: new Date().toISOString(),
       }),
     );
-    localStorage.setItem("underrock.account.current", profile.sub);
+    localStorage.setItem("latexrenderer.account.current", profile.sub);
+    localStorage.removeItem(legacyKey);
+    localStorage.removeItem(["under", "rock.account.current"].join(""));
   } catch {
     /* Private browsing can refuse writes; the session still works, it just does not persist. */
   }
@@ -269,6 +308,7 @@ async function submitPassword(email: string, password: string): Promise<void> {
   );
 
   if (status === 200) {
+    supabasePasswordVerifiedThisPage = true;
     await openWorkspace();
     return;
   }
@@ -283,14 +323,38 @@ async function submitPassword(email: string, password: string): Promise<void> {
   }
 
   if (status === 401 && !(await currentSession())) {
-    showLanding("Your session expired. Please sign in again.");
+    showSupabasePasswordGate(null, { error: "Your session expired. Enter the password again." });
     return;
   }
 
+  showSupabasePasswordGate(email, { error: error ?? "That password was not accepted." });
+}
+
+function showSupabasePasswordGate(
+  email: string | null,
+  state: { error?: string | null; busy?: boolean; lockedMinutes?: number | null } = {},
+): void {
   render(
-    passwordView(email, { onSubmit: (p) => submitPassword(email, p), onSignOut: doSignOut }, {
-      error: error ?? "That password was not accepted.",
-    }),
+    passwordView(
+      email,
+      {
+        onSubmit: (password) => {
+          void (async () => {
+            const session = await currentSession();
+            if (session) {
+              await submitPassword(session.user.email ?? email ?? "your Google account", password);
+              return;
+            }
+            // Kept in memory only, just long enough for Google's popup to return. It is
+            // never written to localStorage/sessionStorage, a URL, or a log.
+            pendingSupabasePassword = password;
+            showLanding();
+          })();
+        },
+        onSignOut: doSignOut,
+      },
+      state,
+    ),
   );
 }
 
@@ -325,7 +389,7 @@ async function unlockAndRun(
       (done, total, path) => render(progressView(path, done, total)),
     );
 
-    handOffToApp(manifest);
+    await handOffToApp(manifest);
     await startProtectedApp(manifest, {
       preloaded: plaintext,
       onProgress: (done, total, path) => render(progressView(path, done, total)),
@@ -428,18 +492,37 @@ function showPasswordGate(
 }
 
 /** Values the editor reads out of the shell rather than importing shell code. */
-function handOffToApp(manifest: ProtectedManifest): void {
+async function handOffToApp(manifest: ProtectedManifest): Promise<void> {
   const w = window as unknown as Record<string, unknown>;
-  w.__UNDERROCK_GOOGLE_CLIENT_ID__ = config.googleClientId;
-  w.__UNDERROCK_MODE__ = config.mode;
+  w.__LATEXRENDERER_GOOGLE_CLIENT_ID__ = config.googleClientId;
+  w.__LATEXRENDERER_MODE__ = config.mode;
   const profile = storedSession();
   if (profile) {
-    w.__UNDERROCK_ACCOUNT__ = {
+    w.__LATEXRENDERER_ACCOUNT__ = {
       sub: profile.sub,
       email: profile.email,
       name: profile.name,
       picture: profile.picture,
     };
+  }
+  if (!DIRECT) {
+    const session = await currentSession();
+    if (session) {
+      w.__LATEXRENDERER_REALTIME__ = {
+        url: config.supabaseUrl,
+        publishableKey: config.supabaseAnonKey,
+        accessToken: session.access_token,
+        user: {
+          id: session.user.id,
+          email: session.user.email ?? "",
+          name:
+            String(session.user.user_metadata?.full_name ?? session.user.user_metadata?.name ?? "") ||
+            session.user.email ||
+            "Collaborator",
+          picture: String(session.user.user_metadata?.avatar_url ?? ""),
+        },
+      };
+    }
   }
   void manifest;
 }
@@ -500,7 +583,7 @@ async function openWorkspace(): Promise<void> {
   }
 
   const manifest = resolved.manifest;
-  handOffToApp(manifest);
+  await handOffToApp(manifest);
 
   render(progressView("Verifying the application", 0, manifest.assets.length));
 
@@ -520,7 +603,7 @@ async function openWorkspace(): Promise<void> {
         errorView(
           "Refused to start",
           `${err.message}\n\n` +
-            "The files do not match the fingerprints published for them. UnderRock will not\n" +
+            "The files do not match the fingerprints published for them. LaTeXRenderer will not\n" +
             "execute code it cannot verify. Reload to try again; if it keeps happening, the\n" +
             "deployment is damaged.",
           { onRetry: () => location.reload(), onSignOut: doSignOut },
@@ -594,8 +677,17 @@ async function boot(): Promise<void> {
     history.replaceState({}, "", config.basePath);
   }
 
+  if (!supabasePasswordVerifiedThisPage) {
+    // The access password is always the first interactive window. With no session it is
+    // held only in memory while Google verifies identity in a popup, then sent once to the
+    // authenticated Edge Function. With a restored session it goes straight to the server.
+    showSupabasePasswordGate(session?.user.email ?? null);
+    return;
+  }
+
   if (!session) {
-    showLanding();
+    supabasePasswordVerifiedThisPage = false;
+    showSupabasePasswordGate(null, { error: "Your Google session expired." });
     return;
   }
 
@@ -620,12 +712,8 @@ async function boot(): Promise<void> {
     // A lapsed grant means the cached bundle must go as well.
     await clearProtectedAppCache();
     const email = session.user.email ?? "your Google account";
-    render(
-      passwordView(email, {
-        onSubmit: (password) => submitPassword(email, password),
-        onSignOut: doSignOut,
-      }),
-    );
+    supabasePasswordVerifiedThisPage = false;
+    showSupabasePasswordGate(email);
     return;
   }
 
@@ -634,15 +722,28 @@ async function boot(): Promise<void> {
 
 // React to sign-out happening in another tab.
 if (!DIRECT) {
-  supabase().auth.onAuthStateChange((event) => {
+  supabase().auth.onAuthStateChange((event, session) => {
     if (event === "SIGNED_OUT" && appRunning) location.replace(config.basePath);
+    if (event === "TOKEN_REFRESHED" && session && appRunning) {
+      const globals = window as unknown as Record<string, unknown>;
+      const realtime = globals.__LATEXRENDERER_REALTIME__;
+      if (realtime && typeof realtime === "object") {
+        globals.__LATEXRENDERER_REALTIME__ = {
+          ...(realtime as Record<string, unknown>),
+          accessToken: session.access_token,
+        };
+        window.dispatchEvent(new CustomEvent("latexrenderer:auth-token", {
+          detail: { accessToken: session.access_token },
+        }));
+      }
+    }
   });
 }
 
 // The editor asks the shell to end the session through these events rather than importing
 // shell code, which keeps the two bundles independent.
-window.addEventListener("underrock:sign-out", () => void doSignOut());
-window.addEventListener("underrock:lock", () => {
+window.addEventListener("latexrenderer:sign-out", () => void doSignOut());
+window.addEventListener("latexrenderer:lock", () => {
   void (async () => {
     if (!DIRECT) await callFunction(FUNCTIONS.revokeAccess);
     await stopProtectedApp();

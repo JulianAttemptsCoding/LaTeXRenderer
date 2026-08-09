@@ -42,7 +42,7 @@ const NOT_FOUND_HTML = `<!doctype html>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
-    <title>Page not found — UnderRock</title>
+    <title>Page not found — LaTeXRenderer</title>
     <style>
       :root { color-scheme: light dark; --fg: #1a1a18; --muted: #6b6b66; --bg: #f7f7f5; --accent: #1d4ed8; }
       @media (prefers-color-scheme: dark) {
@@ -64,8 +64,8 @@ const NOT_FOUND_HTML = `<!doctype html>
   <body>
     <main>
       <h1>That page does not exist</h1>
-      <p>UnderRock is a single page, so there are no sub-pages to link to.</p>
-      <p><a id="home" href="/">Go to UnderRock</a></p>
+      <p>LaTeXRenderer is a single page, so there are no sub-pages to link to.</p>
+      <p><a id="home" href="/">Go to LaTeXRenderer</a></p>
     </main>
     <script>
       // On a project site the app lives one segment down (/LaTeXRenderer/). On a user site
@@ -83,7 +83,7 @@ const NOT_FOUND_HTML = `<!doctype html>
 
 function pagesFallback() {
   return {
-    name: "underrock-pages-404",
+    name: "latexrenderer-pages-404",
     closeBundle() {
       writeFileSync(resolve(__dirname, "dist/404.html"), NOT_FOUND_HTML);
       // .nojekyll stops GitHub Pages from stripping files that begin with an underscore.

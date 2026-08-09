@@ -6,11 +6,11 @@
     "name": "PBKDF2",
     "hash": "SHA-256",
     "iterations": 310000,
-    "saltB64": "8W2otnL22OwQihpFN96EVcZwCdZjvOUwoQ+BmaVB9OU="
+    "saltB64": "x3XtqkOOOv7DRjnuTf1mPvzvGE2m3lBFDrataI/Nhs8="
   },
   "ivBytes": 12,
   "tagBytes": 16,
-  "buildId": "d18c4d1a84a2187d",
+  "buildId": "d6d3b01823949379",
   "entry": "app.js",
   "styles": [
     "app.css"
@@ -20,18 +20,18 @@
     {
       "path": "app.css",
       "file": "app.css.enc",
-      "sha256": "c3533e94fca0ef20e6eb7b41a99e312778e6974f6ff7556c59c79faa1623945b",
-      "size": 77302,
+      "sha256": "f8d8e34ce66c54cdc6a36a76429221f0d6f323c36e19fed78eb34388e715323e",
+      "size": 80253,
       "contentType": "text/css",
-      "encryptedSize": 77330
+      "encryptedSize": 80281
     },
     {
       "path": "app.js",
       "file": "app.js.enc",
-      "sha256": "2a050f104b0b6db75242ff3815b68d9502b521808d66ebb1525b547a57a1031b",
-      "size": 2538711,
+      "sha256": "ad81b96d49c36d137b380f79a591eac4a23ec6e6e2a6bb33b2fe27da6b24dfcf",
+      "size": 2859333,
       "contentType": "text/javascript",
-      "encryptedSize": 2538739
+      "encryptedSize": 2859361
     },
     {
       "path": "editor.worker.js",

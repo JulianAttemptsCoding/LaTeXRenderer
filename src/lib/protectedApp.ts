@@ -130,7 +130,7 @@ export async function deriveUnlockKey(
   );
 }
 
-const UNLOCK_KEY_STORAGE = "underrock.unlock";
+const UNLOCK_KEY_STORAGE = "latexrenderer.unlock";
 
 export async function cacheUnlockKey(key: CryptoKey, buildId: string): Promise<void> {
   try {
@@ -306,7 +306,7 @@ export class IntegrityError extends Error {
   }
 }
 
-const CACHE_DB = "underrock-app-cache";
+const CACHE_DB = "latexrenderer-app-cache";
 const CACHE_STORE = "assets";
 
 /** Every Blob URL this module has minted, so logout can revoke all of them. */
@@ -503,7 +503,7 @@ export async function startProtectedApp(
     const bytes = verified.get(stylePath);
     if (!bytes) continue;
     const style = document.createElement("style");
-    style.dataset.underrock = "protected-style";
+    style.dataset.latexrenderer = "protected-style";
     style.textContent = decoder.decode(bytes);
     document.head.appendChild(style);
     injectedNodes.add(style);
@@ -515,13 +515,13 @@ export async function startProtectedApp(
     const bytes = verified.get(manifest.worker);
     if (bytes) {
       const workerUrl = objectUrl(bytes, "text/javascript");
-      (window as unknown as Record<string, unknown>).__UNDERROCK_WORKER_URL__ = workerUrl;
+      (window as unknown as Record<string, unknown>).__LATEXRENDERER_WORKER_URL__ = workerUrl;
     }
   }
 
   // 3. Hand the app the base path and build id it needs, then execute the entry bundle.
-  (window as unknown as Record<string, unknown>).__UNDERROCK_BUILD__ = manifest.buildId;
-  (window as unknown as Record<string, unknown>).__UNDERROCK_GRANT_EXPIRES__ =
+  (window as unknown as Record<string, unknown>).__LATEXRENDERER_BUILD__ = manifest.buildId;
+  (window as unknown as Record<string, unknown>).__LATEXRENDERER_GRANT_EXPIRES__ =
     manifest.grantExpiresAt;
 
   const entryBytes = verified.get(manifest.entry);
@@ -529,7 +529,7 @@ export async function startProtectedApp(
 
   await new Promise<void>((resolve, reject) => {
     const script = document.createElement("script");
-    script.dataset.underrock = "protected-entry";
+    script.dataset.latexrenderer = "protected-entry";
     script.src = objectUrl(entryBytes, "text/javascript");
     script.onload = () => resolve();
     script.onerror = () => reject(new Error("The application bundle failed to execute."));
@@ -555,9 +555,11 @@ export async function stopProtectedApp(): Promise<void> {
   injectedNodes.clear();
 
   const w = window as unknown as Record<string, unknown>;
-  delete w.__UNDERROCK_WORKER_URL__;
-  delete w.__UNDERROCK_BUILD__;
-  delete w.__UNDERROCK_GRANT_EXPIRES__;
+  delete w.__LATEXRENDERER_WORKER_URL__;
+  delete w.__LATEXRENDERER_BUILD__;
+  delete w.__LATEXRENDERER_GRANT_EXPIRES__;
+  delete w.__LATEXRENDERER_REALTIME__;
+  delete w.__LATEXRENDERER_ACCOUNT__;
 
   await clearProtectedAppCache();
 }

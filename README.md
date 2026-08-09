@@ -1,8 +1,8 @@
-# UnderRock — public shell
+# LaTeXRenderer — public shell
 
 **https://julianattemptscoding.github.io/LaTeXRenderer/**
 
-This repository is the small public front door to UnderRock, a free collaborative LaTeX
+This repository is the small public front door to LaTeXRenderer, a free collaborative LaTeX
 environment for a team of up to ten people. It contains the landing page, Google sign-in,
 the shared-password form, and the loader that fetches and verifies the editor application.
 
@@ -19,24 +19,26 @@ password gate.
 
 The mode is chosen automatically at build time by whether Supabase is configured.
 
-| | **DIRECT** (current) | **SUPABASE** (optional upgrade) |
+| | **DIRECT** (encrypted fallback) | **SUPABASE** (production) |
 |---|---|---|
 | To set up | a Google Client ID | + Supabase project, OAuth secret, Edge Functions |
 | Sign-in | Google Identity Services, in the browser | Supabase Auth, PKCE, verified server-side |
-| Shared-password gate | none | yes, PBKDF2 checked server-side |
-| Editor bundle | public, from `public/app/` | private bucket, 5-minute signed URLs |
+| Shared-password gate | local PBKDF2 decryption | PBKDF2 checked server-side + rate limiting |
+| Editor bundle | public ciphertext from `public/app-locked/` | private bucket, 5-minute signed URLs |
 | Asset SHA-256 verified | yes | yes |
 | Who can use the site | anyone with the URL | only signed-in users past the gate |
 | Where your documents live | browser / folder / your own Drive | identical |
 
-Direct mode is defensible because **nothing in it trusts the identity for authorisation**:
+Direct mode is an encrypted offline fallback. It is defensible because **nothing in it
+trusts the identity for authorisation**:
 there is no server-side data, no shared store, and no privileged action. Your projects live
 in your own browser, folder, or Drive — and Drive access is granted by Google directly to
 your account, which *is* verified, by Google, where it matters.
 
-What direct mode does **not** do is restrict who may use the site. If that matters, set the
-two Supabase repository variables and re-deploy. See
-[`docs/SECURITY_MODEL.md`](docs/SECURITY_MODEL.md) §0.
+Its public ciphertext permits offline password guessing, so it is weaker than the deployed
+Supabase mode. Production uses server-side rate limiting, expiring grants, private storage,
+and verified Google sign-in. See `docs/SECURITY_MODEL.md` in the private implementation
+repository for the full threat model.
 
 ## What this repository can and cannot protect
 
@@ -140,19 +142,21 @@ auth configured and your own Google account is on its test-user list — see
 4. publish to GitHub Pages
 5. smoke-test the live URL, including that a hashed asset and `404.html` both return 200
 
-Two **repository variables** must be set (Settings → Secrets and variables → Actions →
-Variables). They are variables rather than secrets because both are public:
+Three **repository variables** are configured (Settings → Secrets and variables → Actions
+→ Variables). They are variables rather than secrets because all three are public:
 
 | Name | Example |
 |---|---|
 | `VITE_SUPABASE_URL` | `https://abcdefghijklm.supabase.co` |
 | `VITE_SUPABASE_ANON_KEY` | the project's publishable/anon key |
+| `VITE_GOOGLE_CLIENT_ID` | the web client ID ending in `.apps.googleusercontent.com` |
 
-One optional **secret**, used only to prove a negative:
+Two **secrets** are configured for QA only; neither is bundled into production:
 
 | Name | Purpose |
 |---|---|
-| `SHARED_PASSWORD_CANARY` | The literal shared password, so CI can assert it appears nowhere in the built output. If unset, that check reports **SKIPPED** rather than passing. |
+| `SHARED_PASSWORD` | Unlocks the encrypted fallback during direct-mode CI tests |
+| `SHARED_PASSWORD_CANARY` | Proves the literal password appears nowhere in source or built output |
 
 The build refuses to start if `VITE_SUPABASE_ANON_KEY` decodes to `role: service_role`.
 

@@ -24,7 +24,8 @@
 
 import { config } from "../config";
 
-const SESSION_KEY = "underrock.google.session";
+const SESSION_KEY = "latexrenderer.google.session";
+const LEGACY_SESSION_KEY = ["under", "rock.google.session"].join("");
 const GIS_SRC = "https://accounts.google.com/gsi/client";
 
 export interface GoogleProfile {
@@ -41,6 +42,12 @@ interface CredentialResponse {
   error?: string;
 }
 
+export interface GoogleCredential {
+  token: string;
+  /** Raw nonce; Google receives only its SHA-256 digest. */
+  nonce: string;
+}
+
 declare global {
   interface Window {
     google?: {
@@ -52,6 +59,7 @@ declare global {
             auto_select?: boolean;
             cancel_on_tap_outside?: boolean;
             ux_mode?: "popup" | "redirect";
+            nonce?: string;
           }): void;
           renderButton(parent: HTMLElement, options: Record<string, unknown>): void;
           prompt(listener?: (notification: unknown) => void): void;
@@ -122,13 +130,20 @@ function decodeIdToken(token: string): GoogleProfile | null {
 
 export function storedSession(): GoogleProfile | null {
   try {
-    const raw = localStorage.getItem(SESSION_KEY);
+    const current = localStorage.getItem(SESSION_KEY);
+    const legacy = current ? null : localStorage.getItem(LEGACY_SESSION_KEY);
+    const raw = current ?? legacy;
     if (!raw) return null;
     const profile = JSON.parse(raw) as GoogleProfile;
     // A token past its expiry is treated as no session at all.
     if (!profile?.sub || (profile.exp && profile.exp * 1000 < Date.now())) {
       localStorage.removeItem(SESSION_KEY);
+      localStorage.removeItem(LEGACY_SESSION_KEY);
       return null;
+    }
+    if (legacy) {
+      localStorage.setItem(SESSION_KEY, raw);
+      localStorage.removeItem(LEGACY_SESSION_KEY);
     }
     return profile;
   } catch {
@@ -147,6 +162,7 @@ function storeSession(profile: GoogleProfile): void {
 export function clearSession(): void {
   try {
     localStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem(LEGACY_SESSION_KEY);
   } catch {
     /* nothing to do */
   }
@@ -154,7 +170,27 @@ export function clearSession(): void {
 }
 
 let initialised = false;
-let pending: ((profile: GoogleProfile | null, error: string | null) => void) | null = null;
+let nonce = "";
+let pending:
+  | ((
+      profile: GoogleProfile | null,
+      error: string | null,
+      credential?: GoogleCredential,
+    ) => void)
+  | null = null;
+
+async function createNonce(): Promise<{ raw: string; digest: string }> {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  const raw = btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
+  const digest = Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, "0")).join(
+    "",
+  );
+  return { raw, digest };
+}
 
 async function ensureInitialised(): Promise<void> {
   await loadGis();
@@ -162,11 +198,15 @@ async function ensureInitialised(): Promise<void> {
   if (!id) throw new Error("Google Identity Services did not initialise. Reload and try again.");
   if (initialised) return;
 
+  const generated = await createNonce();
+  nonce = generated.raw;
+
   id.initialize({
     client_id: config.googleClientId,
     auto_select: false,
     cancel_on_tap_outside: true,
     ux_mode: "popup",
+    nonce: generated.digest,
     callback: (response) => {
       if (response.error || !response.credential) {
         pending?.(null, response.error ?? "Google did not return a sign-in token.");
@@ -180,7 +220,7 @@ async function ensureInitialised(): Promise<void> {
         return;
       }
       storeSession(profile);
-      pending?.(profile, null);
+      pending?.(profile, null, { token: response.credential, nonce });
       pending = null;
     },
   });
@@ -196,7 +236,11 @@ async function ensureInitialised(): Promise<void> {
  */
 export async function renderSignInButton(
   parent: HTMLElement,
-  onResult: (profile: GoogleProfile | null, error: string | null) => void,
+  onResult: (
+    profile: GoogleProfile | null,
+    error: string | null,
+    credential?: GoogleCredential,
+  ) => void,
 ): Promise<void> {
   await ensureInitialised();
   pending = onResult;
@@ -213,7 +257,11 @@ export async function renderSignInButton(
 
 /** Nudges Google's One Tap prompt, for returning visitors. Failure is not an error. */
 export async function promptOneTap(
-  onResult: (profile: GoogleProfile | null, error: string | null) => void,
+  onResult: (
+    profile: GoogleProfile | null,
+    error: string | null,
+    credential?: GoogleCredential,
+  ) => void,
 ): Promise<void> {
   try {
     await ensureInitialised();

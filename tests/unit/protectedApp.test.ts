@@ -103,11 +103,11 @@ describe("startProtectedApp", () => {
     await startProtectedApp(manifestOf([entry.asset, style.asset]));
     observer.disconnect();
 
-    expect(document.querySelector('script[data-underrock="protected-entry"]')).toBeTruthy();
-    expect(document.querySelector('style[data-underrock="protected-style"]')?.textContent)
+    expect(document.querySelector('script[data-latexrenderer="protected-entry"]')).toBeTruthy();
+    expect(document.querySelector('style[data-latexrenderer="protected-style"]')?.textContent)
       .toBe("body{color:red}");
     expect(
-      (window as unknown as Record<string, unknown>).__UNDERROCK_BUILD__,
+      (window as unknown as Record<string, unknown>).__LATEXRENDERER_BUILD__,
     ).toBe("testbuild01");
   });
 
@@ -119,7 +119,7 @@ describe("startProtectedApp", () => {
     await expect(startProtectedApp(manifestOf([entry.asset]))).rejects.toBeInstanceOf(
       IntegrityError,
     );
-    expect(document.querySelector('script[data-underrock="protected-entry"]')).toBeNull();
+    expect(document.querySelector('script[data-latexrenderer="protected-entry"]')).toBeNull();
     expect((globalThis as Record<string, unknown>).__pwned__).toBeUndefined();
   });
 
@@ -146,8 +146,8 @@ describe("startProtectedApp", () => {
     ).rejects.toBeInstanceOf(IntegrityError);
 
     // The point of verifying everything before injecting anything.
-    expect(document.querySelector("style[data-underrock]")).toBeNull();
-    expect(document.querySelector("script[data-underrock]")).toBeNull();
+    expect(document.querySelector("style[data-latexrenderer]")).toBeNull();
+    expect(document.querySelector("script[data-latexrenderer]")).toBeNull();
   });
 
   it("reports a download failure without executing anything", async () => {
@@ -178,7 +178,7 @@ describe("startProtectedApp", () => {
     await startProtectedApp(manifestOf([entry.asset, worker.asset]));
     observer.disconnect();
 
-    const url = (window as unknown as Record<string, unknown>).__UNDERROCK_WORKER_URL__;
+    const url = (window as unknown as Record<string, unknown>).__LATEXRENDERER_WORKER_URL__;
     expect(String(url)).toMatch(/^blob:/);
     expect(String(url)).not.toContain("storage.example.test");
   });
@@ -201,10 +201,10 @@ describe("stopProtectedApp", () => {
 
     await stopProtectedApp();
 
-    expect(document.querySelector("script[data-underrock]")).toBeNull();
+    expect(document.querySelector("script[data-latexrenderer]")).toBeNull();
     const w = window as unknown as Record<string, unknown>;
-    expect(w.__UNDERROCK_BUILD__).toBeUndefined();
-    expect(w.__UNDERROCK_WORKER_URL__).toBeUndefined();
+    expect(w.__LATEXRENDERER_BUILD__).toBeUndefined();
+    expect(w.__LATEXRENDERER_WORKER_URL__).toBeUndefined();
     vi.unstubAllGlobals();
   });
 });

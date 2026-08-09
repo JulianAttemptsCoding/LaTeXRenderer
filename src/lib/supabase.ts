@@ -18,10 +18,10 @@ export function supabase(): SupabaseClient {
       detectSessionInUrl: true,
       persistSession: true,
       autoRefreshToken: true,
-      storageKey: "underrock.auth",
+      storageKey: "latexrenderer.auth",
     },
     global: {
-      headers: { "x-underrock-shell": "1" },
+      headers: { "x-latexrenderer-shell": "1" },
     },
   });
   return client;
@@ -43,6 +43,25 @@ export async function signInWithGoogle(): Promise<{ error: string | null }> {
       scopes: "openid email profile",
       queryParams: { prompt: "select_account" },
     },
+  });
+  return { error: error?.message ?? null };
+}
+
+/**
+ * Verifies a Google Identity Services credential through Supabase Auth.
+ *
+ * The popup keeps the password-first flow on one page, so the password can remain only in
+ * memory. Google receives the SHA-256 nonce while Supabase receives the raw value and
+ * verifies both the nonce and Google's signature before issuing a session.
+ */
+export async function signInWithGoogleIdToken(
+  token: string,
+  nonce: string,
+): Promise<{ error: string | null }> {
+  const { error } = await supabase().auth.signInWithIdToken({
+    provider: "google",
+    token,
+    nonce,
   });
   return { error: error?.message ?? null };
 }

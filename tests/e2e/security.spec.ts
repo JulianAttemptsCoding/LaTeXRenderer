@@ -10,10 +10,26 @@ import { expect, signIn, test } from "./fixtures";
  */
 
 test.describe("gate cannot be bypassed from the browser", () => {
-  test("an unauthenticated visitor sees only the landing page", async ({ page }) => {
+  test("the password is the first window, before Google sign-in", async ({ page }) => {
     await page.goto("./");
-    await expect(page.getByRole("button", { name: /continue with google/i })).toBeVisible();
+    await expect(page.getByLabel(/access password/i)).toBeVisible();
+    await expect(page.getByRole("button", { name: /continue with google/i })).toHaveCount(0);
     await expect(page.locator("#editor-root")).toHaveCount(0);
+  });
+
+  test("the pre-sign-in password remains in memory only", async ({ page, state }) => {
+    await page.goto("./");
+    await page.getByLabel(/access password/i).fill(state.correctPassword);
+    await page.getByRole("button", { name: /unlock/i }).click();
+    await expect(page.getByRole("button", { name: /continue with google/i })).toBeVisible();
+    const persisted = await page.evaluate(() => ({
+      local: JSON.stringify(localStorage),
+      session: JSON.stringify(sessionStorage),
+      url: location.href,
+    }));
+    expect(persisted.local).not.toContain(state.correctPassword);
+    expect(persisted.session).not.toContain(state.correctPassword);
+    expect(persisted.url).not.toContain(encodeURIComponent(state.correctPassword));
   });
 
   test("signed in but ungranted, the password form is shown and no bundle is fetched", async ({
@@ -48,13 +64,13 @@ test.describe("gate cannot be bypassed from the browser", () => {
     await expect(page.getByLabel(/access password/i)).toBeVisible();
 
     await page.evaluate(() => {
-      localStorage.setItem("underrock.hasAccess", "true");
+      localStorage.setItem("latexrenderer.hasAccess", "true");
       localStorage.setItem("hasAccess", "true");
       localStorage.setItem("authorized", "1");
-      localStorage.setItem("underrock.grant", JSON.stringify({ hasAccess: true }));
+      localStorage.setItem("latexrenderer.grant", JSON.stringify({ hasAccess: true }));
       sessionStorage.setItem("unlocked", "yes");
-      sessionStorage.setItem("underrock.siteAccess", "granted");
-      document.cookie = "underrock_access=granted; path=/";
+      sessionStorage.setItem("latexrenderer.siteAccess", "granted");
+      document.cookie = "latexrenderer_access=granted; path=/";
     });
     await page.reload();
 
@@ -72,9 +88,9 @@ test.describe("gate cannot be bypassed from the browser", () => {
     await expect(page.getByLabel(/access password/i)).toBeVisible();
 
     await page.evaluate(() => {
-      window.dispatchEvent(new CustomEvent("underrock:unlock"));
-      window.dispatchEvent(new CustomEvent("underrock:granted"));
-      (window as unknown as Record<string, unknown>).__UNDERROCK_BUILD__ = "forged";
+      window.dispatchEvent(new CustomEvent("latexrenderer:unlock"));
+      window.dispatchEvent(new CustomEvent("latexrenderer:granted"));
+      (window as unknown as Record<string, unknown>).__LATEXRENDERER_BUILD__ = "forged";
     });
     await page.waitForTimeout(400);
 
@@ -187,12 +203,15 @@ test.describe("the authorised path works", () => {
     expect(state.hasAccess).toBe(true);
   });
 
-  test("an already granted user goes straight to the editor", async ({ page, state }) => {
+  test("an already granted user must still enter the first-window password", async ({ page, state }) => {
     await signIn(page, state);
     state.hasAccess = true;
     state.grantExpiresAt = new Date(Date.now() + 3_600_000).toISOString();
 
     await page.goto("./");
+    await expect(page.getByLabel(/access password/i)).toBeVisible();
+    await page.getByLabel(/access password/i).fill(state.correctPassword);
+    await page.getByRole("button", { name: /unlock/i }).click();
     await expect(page.locator("#editor-root")).toHaveText("EDITOR LOADED", { timeout: 15_000 });
   });
 
@@ -214,6 +233,8 @@ test.describe("the authorised path works", () => {
     state.hasAccess = true;
     state.grantExpiresAt = new Date(Date.now() + 3_600_000).toISOString();
     await page.goto("./");
+    await page.getByLabel(/access password/i).fill(state.correctPassword);
+    await page.getByRole("button", { name: /unlock/i }).click();
     await expect(page.locator("#editor-root")).toHaveText("EDITOR LOADED", { timeout: 15_000 });
 
     state.hasAccess = false; // the owner revoked it server-side
@@ -231,6 +252,8 @@ test.describe("bundle integrity", () => {
     state.tamper = true;
 
     await page.goto("./");
+    await page.getByLabel(/access password/i).fill(state.correctPassword);
+    await page.getByRole("button", { name: /unlock/i }).click();
 
     await expect(page.getByRole("heading", { name: /refused to start/i })).toBeVisible({
       timeout: 15_000,
@@ -248,7 +271,7 @@ test.describe("GitHub Pages base path", () => {
       }
     });
     await page.goto("./");
-    await expect(page.getByRole("button", { name: /continue with google/i })).toBeVisible();
+    await expect(page.getByLabel(/access password/i)).toBeVisible();
     expect(failures).toEqual([]);
   });
 
@@ -297,7 +320,7 @@ test.describe("GitHub Pages base path", () => {
     // error. The shell has no routes, so a genuine 404 page is the correct answer.
     await page.goto("./404.html");
     await expect(page.getByRole("heading", { name: /does not exist/i })).toBeVisible();
-    await expect(page.getByRole("link", { name: /go to underrock/i })).toBeVisible();
+    await expect(page.getByRole("link", { name: /go to latexrenderer/i })).toBeVisible();
 
     // It must stand on its own: no external CSS or JS to fetch.
     const external = await page.evaluate(() => ({
@@ -310,7 +333,7 @@ test.describe("GitHub Pages base path", () => {
 
   test("a refresh after the OAuth redirect does not 404", async ({ page }) => {
     await page.goto("./?code=fake-pkce-code&state=abc");
-    await expect(page.getByRole("button", { name: /continue with google/i })).toBeVisible();
+    await expect(page.getByLabel(/access password/i)).toBeVisible();
     // The code must be stripped so a copied URL carries no authorization state.
     expect(page.url()).not.toContain("code=");
   });
@@ -352,8 +375,7 @@ test.describe("accessibility and responsiveness", () => {
   test("the landing page is keyboard reachable", async ({ page }) => {
     await page.goto("./");
     await page.keyboard.press("Tab");
-    const focused = await page.evaluate(() => document.activeElement?.textContent ?? "");
-    expect(focused.length).toBeGreaterThan(0);
+    await expect(page.getByLabel(/access password/i)).toBeFocused();
   });
 
   test("the page does not scroll horizontally on a narrow viewport", async ({ page }) => {

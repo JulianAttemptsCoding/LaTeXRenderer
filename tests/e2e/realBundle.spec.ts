@@ -95,15 +95,37 @@ test.describe("the real editor bundle", () => {
     page.on("pageerror", (error) => pageErrors.push(error.message));
 
     await page.goto("./");
+    await page.getByLabel(/access password/i).fill(state.correctPassword);
+    await page.getByRole("button", { name: /unlock/i }).click();
 
     // The app creates its own root node and mounts React into it.
-    await expect(page.locator("#underrock-root")).toBeAttached({ timeout: 60_000 });
-    await expect(page.locator("#underrock-root .dashboard, #underrock-root .workspace")).toBeVisible(
+    await expect(page.locator("#latexrenderer-root")).toBeAttached({ timeout: 60_000 });
+    await expect(page.locator("#latexrenderer-root .dashboard, #latexrenderer-root .workspace")).toBeVisible(
       { timeout: 60_000 },
     );
 
     // The dashboard is the first thing an authorised user should see.
     await expect(page.getByRole("button", { name: /new blank project/i })).toBeVisible();
+
+    // Exercise the real editor surfaces added after the shell handoff. This catches
+    // protected-bundle-only regressions that component tests cannot see (IndexedDB,
+    // Monaco, responsive fixed panels, and the blob worker all participate here).
+    page.once("dialog", (dialog) => dialog.accept("QA project"));
+    await page.getByRole("button", { name: /new blank project/i }).click();
+    await expect(page.locator("#latexrenderer-root .workspace")).toBeVisible({ timeout: 60_000 });
+    await expect(page.locator(".monaco-host")).toBeVisible({ timeout: 60_000 });
+
+    await page.getByRole("button", { name: "History" }).click();
+    await expect(page.getByRole("dialog", { name: /version history/i })).toBeVisible();
+    await page.getByRole("button", { name: /close history/i }).click();
+
+    await page.getByRole("button", { name: /^Review/ }).click();
+    await expect(page.getByRole("complementary", { name: /review and comments/i })).toBeVisible();
+    await page.getByRole("button", { name: /close review/i }).click();
+
+    await page.getByRole("button", { name: /^Collaborate/ }).click();
+    await expect(page.getByRole("complementary", { name: /live collaboration/i })).toBeVisible();
+    await page.getByRole("button", { name: /close collaboration/i }).click();
 
     // A module-resolution failure would surface here, not as a missing element.
     const fatal = pageErrors.filter(
@@ -112,16 +134,16 @@ test.describe("the real editor bundle", () => {
     expect(fatal, `module errors: ${fatal.join(" | ")}`).toEqual([]);
 
     const styleInjected = await page.evaluate(
-      () => document.querySelectorAll('style[data-underrock="protected-style"]').length,
+      () => document.querySelectorAll('style[data-latexrenderer="protected-style"]').length,
     );
     expect(styleInjected).toBeGreaterThan(0);
 
     const workerUrl = await page.evaluate(
-      () => (window as unknown as Record<string, unknown>).__UNDERROCK_WORKER_URL__,
+      () => (window as unknown as Record<string, unknown>).__LATEXRENDERER_WORKER_URL__,
     );
     expect(String(workerUrl)).toMatch(/^blob:/);
 
-    console.log(`console errors during load: ${consoleErrors.length}`);
+    console.log(`console errors during load: ${consoleErrors.length}${consoleErrors.length ? ` — ${consoleErrors.join(" | ")}` : ""}`);
   });
 
   test("a single flipped byte in the real bundle stops it executing", async ({ page, state }) => {
@@ -189,10 +211,12 @@ test.describe("the real editor bundle", () => {
     });
 
     await page.goto("./");
+    await page.getByLabel(/access password/i).fill(state.correctPassword);
+    await page.getByRole("button", { name: /unlock/i }).click();
 
     await expect(page.getByRole("heading", { name: /refused to start/i })).toBeVisible({
       timeout: 60_000,
     });
-    await expect(page.locator("#underrock-root")).toHaveCount(0);
+    await expect(page.locator("#latexrenderer-root")).toHaveCount(0);
   });
 });

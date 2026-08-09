@@ -173,6 +173,7 @@ jobs:
           # same output works at /LaTeXRenderer/, at a bare user-site root, and locally.
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+          VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
 
       - name: Scan the built output for forbidden material
         # SHARED_PASSWORD_CANARY is optional. When it is absent the scanner reports the

@@ -5,8 +5,8 @@ function wordmark(): HTMLElement {
   return el(
     "div",
     { class: "wordmark" },
-    el("span", { class: "wordmark-mark", "aria-hidden": "true" }, "U"),
-    el("span", { class: "wordmark-text" }, "UnderRock"),
+    el("span", { class: "wordmark-mark", "aria-hidden": "true" }, "L"),
+    el("span", { class: "wordmark-text" }, "LaTeXRenderer"),
   );
 }
 
@@ -118,7 +118,7 @@ export function landingView(
     el(
       "p",
       { class: "lede" },
-      "Good writing tools should not sit behind a subscription. UnderRock is a full " +
+      "Good writing tools should not sit behind a subscription. LaTeXRenderer is a full " +
         "LaTeX workspace that costs nothing to run and nothing to use — because the " +
         "editor lives in your browser and the typesetting happens on your own computer.",
     ),
@@ -194,7 +194,7 @@ export function passwordView(
     el(
       "p",
       { class: "lede" },
-      "UnderRock is private. Enter the access password to continue.",
+      "LaTeXRenderer is private. Enter the access password to continue.",
     ),
     // Only after sign-in does an address exist to show; before it, this is the front door.
     email ? el("p", { class: "signed-in-as" }, `Signed in as ${email}`) : null,

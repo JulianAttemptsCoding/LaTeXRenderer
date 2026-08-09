@@ -16,7 +16,7 @@ if (typeof URL.createObjectURL !== "function") {
   let counter = 0;
   const registry = new Map<string, Blob>();
   URL.createObjectURL = (blob: Blob) => {
-    const url = `blob:underrock/${++counter}`;
+    const url = `blob:latexrenderer/${++counter}`;
     registry.set(url, blob);
     return url;
   };

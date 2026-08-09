@@ -66,7 +66,7 @@ function detectBasePath(): string {
  * Overridable with VITE_GOOGLE_CLIENT_ID. Public by design; see the header comment.
  */
 const DEFAULT_GOOGLE_CLIENT_ID =
-  "948316320373-ltmmmo6bgtr6lihrp735i7gkm38mjvn0.apps.googleusercontent.com";
+  "515873952108-nvq7epurcvvpvamjhf9uia4p38hqrq0j.apps.googleusercontent.com";
 
 function build(): AppConfig {
   const supabaseUrl = readEnv("VITE_SUPABASE_URL").replace(/\/+$/, "");
