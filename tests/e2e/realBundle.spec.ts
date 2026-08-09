@@ -12,20 +12,20 @@ const here = dirname(fileURLToPath(import.meta.url));
  * Loads the REAL protected bundle through the REAL shell loader.
  *
  * Every other test in this suite uses a three-line stand-in for the editor, which proves
- * the gate but not that a 2.5 MB Monaco IIFE actually survives being fetched, hashed, and
+ * the gate but not that the Monaco/TeX bundle actually survives being fetched, hashed, and
  * executed from a `blob:` URL. That is the assumption the entire delivery mechanism rests
  * on, and two things could break it:
  *
  *   1. any surviving ESM `import` at module-evaluation time (relative specifiers inside a
  *      blob resolve against the blob URL and 404),
- *   2. Monaco failing to construct its web worker from the blob URL the shell provides.
+ *   2. Monaco or the TeX engine failing to construct its worker from a verified blob URL.
  *
  * The suite skips itself, loudly, when the sibling texCompiler build is absent — in CI the
  * two repositories are separate. A skip is reported as a skip, never as a pass.
  */
 
 const DIST = resolve(here, "../../../texCompiler/app/dist");
-const REQUIRED = ["app.js", "app.css", "editor.worker.js"];
+const REQUIRED = ["app.js", "app.css", "editor.worker.js", "compiler.worker.js"];
 
 const available = existsSync(DIST) && REQUIRED.every((f) => existsSync(resolve(DIST, f)));
 
@@ -35,7 +35,7 @@ test.describe("the real editor bundle", () => {
     `Built bundle not found at ${DIST}. Run "node scripts/build-protected-app.mjs" in texCompiler first.`,
   );
 
-  test("is fetched, hash-verified, and executed from a blob URL", async ({ page, state }) => {
+  test("is fetched, hash-verified, and executed from a blob URL", async ({ page, state }, testInfo) => {
     const bytes = new Map<string, Buffer>();
     for (const name of REQUIRED) bytes.set(name, readFileSync(resolve(DIST, name)));
 
@@ -65,6 +65,7 @@ test.describe("the real editor bundle", () => {
           entry: "app.js",
           styles: ["app.css"],
           worker: "editor.worker.js",
+          compilerWorker: "compiler.worker.js",
           expiresInSeconds: 300,
           grantExpiresAt: state.grantExpiresAt,
           assets,
@@ -142,6 +143,36 @@ test.describe("the real editor bundle", () => {
       () => (window as unknown as Record<string, unknown>).__LATEXRENDERER_WORKER_URL__,
     );
     expect(String(workerUrl)).toMatch(/^blob:/);
+
+    const compilerWorkerUrl = await page.evaluate(
+      () => (window as unknown as Record<string, unknown>).__LATEXRENDERER_COMPILER_WORKER_URL__,
+    );
+    expect(String(compilerWorkerUrl)).toMatch(/^blob:/);
+
+    // One real TeX Live WebAssembly compile proves this is genuinely install-free, not
+    // just UI copy over the old companion requirement. Run once, not again in mobile QA.
+    if (testInfo.project.name === "chromium") {
+      test.setTimeout(240_000);
+      await page.getByRole("button", { name: "Recompile" }).click();
+      await expect(page.locator(".output-status")).toContainText(/Built|Failed/, { timeout: 210_000 });
+      if ((await page.locator(".output-status").innerText()).includes("Failed")) {
+        await page.getByRole("button", { name: "Log" }).click();
+        console.log(`browser compiler log:\n${await page.locator("pre.log").innerText()}`);
+      }
+      await expect(page.locator(".output-status")).toContainText("Built");
+      await expect(page.locator("iframe.pdf-frame")).toBeVisible();
+      await expect(page.locator(".output-status")).toContainText("Browser TeX Live 2025");
+
+      // The reported production failure used XeLaTeX, so exercise that exact engine too.
+      await page.locator('select[title="TeX engine"]').selectOption("xelatex");
+      await page.getByRole("button", { name: "Recompile" }).click();
+      await expect(page.locator(".output-status")).toContainText("xelatex", { timeout: 210_000 });
+      if ((await page.locator(".output-status").innerText()).includes("Failed")) {
+        await page.getByRole("button", { name: "Log" }).click();
+        console.log(`XeLaTeX browser compiler log:\n${await page.locator("pre.log").innerText()}`);
+      }
+      await expect(page.locator(".output-status")).toContainText("Built");
+    }
 
     console.log(`console errors during load: ${consoleErrors.length}${consoleErrors.length ? ` — ${consoleErrors.join(" | ")}` : ""}`);
   });

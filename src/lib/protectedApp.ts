@@ -35,6 +35,7 @@ export interface ProtectedManifest {
   entry: string;
   styles: string[];
   worker: string | null;
+  compilerWorker?: string | null;
   expiresInSeconds: number;
   grantExpiresAt: string;
   assets: ManifestAsset[];
@@ -55,6 +56,7 @@ export interface LockedEnvelope {
   entry: string;
   styles: string[];
   worker: string | null;
+  compilerWorker?: string | null;
   assets: Array<{
     path: string;
     file: string;
@@ -236,6 +238,7 @@ export async function unlockManifest(
       entry: envelope.entry,
       styles: envelope.styles ?? [],
       worker: envelope.worker ?? null,
+      compilerWorker: envelope.compilerWorker ?? null,
       expiresInSeconds: 0,
       grantExpiresAt: "",
       assets,
@@ -271,6 +274,7 @@ export async function localManifest(basePath: string): Promise<ProtectedManifest
     entry: string;
     styles: string[];
     worker: string | null;
+    compilerWorker?: string | null;
     assets: Array<{ path: string; sha256: string; size: number; contentType: string }>;
   };
 
@@ -280,6 +284,7 @@ export async function localManifest(basePath: string): Promise<ProtectedManifest
     entry: manifest.entry,
     styles: manifest.styles ?? [],
     worker: manifest.worker ?? null,
+    compilerWorker: manifest.compilerWorker ?? null,
     expiresInSeconds: 0,
     grantExpiresAt: "",
     assets: manifest.assets.map((asset) => {
@@ -519,7 +524,18 @@ export async function startProtectedApp(
     }
   }
 
-  // 3. Hand the app the base path and build id it needs, then execute the entry bundle.
+  // 3. The in-browser TeX worker. Like Monaco's worker, it is supplied as a verified
+  //    same-origin blob URL; the protected app never executes an unverified worker.
+  if (manifest.compilerWorker) {
+    const bytes = verified.get(manifest.compilerWorker);
+    if (bytes) {
+      const workerUrl = objectUrl(bytes, "text/javascript");
+      (window as unknown as Record<string, unknown>).__LATEXRENDERER_COMPILER_WORKER_URL__ =
+        workerUrl;
+    }
+  }
+
+  // 4. Hand the app the base path and build id it needs, then execute the entry bundle.
   (window as unknown as Record<string, unknown>).__LATEXRENDERER_BUILD__ = manifest.buildId;
   (window as unknown as Record<string, unknown>).__LATEXRENDERER_GRANT_EXPIRES__ =
     manifest.grantExpiresAt;
@@ -556,6 +572,7 @@ export async function stopProtectedApp(): Promise<void> {
 
   const w = window as unknown as Record<string, unknown>;
   delete w.__LATEXRENDERER_WORKER_URL__;
+  delete w.__LATEXRENDERER_COMPILER_WORKER_URL__;
   delete w.__LATEXRENDERER_BUILD__;
   delete w.__LATEXRENDERER_GRANT_EXPIRES__;
   delete w.__LATEXRENDERER_REALTIME__;

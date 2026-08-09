@@ -6,7 +6,7 @@
  *   node scripts/sync-app.mjs                    # looks for ../texCompiler/app/dist
  *   node scripts/sync-app.mjs <path-to-dist>
  *
- * Only the three assets the manifest actually serves are copied, and each is re-hashed
+ * Only the assets the manifest actually serves are copied, and each is re-hashed
  * here rather than trusted from the manifest. That turns a truncated or partially-written
  * copy into a build failure instead of a page that refuses to start at runtime, which is a
  * far worse place to discover it.

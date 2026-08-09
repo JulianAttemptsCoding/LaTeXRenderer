@@ -37,6 +37,7 @@ function manifestOf(assets: ManifestAsset[], entry = "app.js"): ProtectedManifes
     entry,
     styles: assets.filter((a) => a.path.endsWith(".css")).map((a) => a.path),
     worker: assets.find((a) => a.path === "editor.worker.js")?.path ?? null,
+    compilerWorker: assets.find((a) => a.path === "compiler.worker.js")?.path ?? null,
     expiresInSeconds: 300,
     grantExpiresAt: new Date(Date.now() + 3_600_000).toISOString(),
     assets,
@@ -182,6 +183,34 @@ describe("startProtectedApp", () => {
     expect(String(url)).toMatch(/^blob:/);
     expect(String(url)).not.toContain("storage.example.test");
   });
+
+  it("exposes the browser compiler worker only after verifying it", async () => {
+    const entry = await asset("app.js", "1;");
+    const worker = await asset("compiler.worker.js", "self.onmessage=()=>{};");
+    vi.stubGlobal(
+      "fetch",
+      stubFetch(new Map([
+        [entry.asset.url, entry.bytes],
+        [worker.asset.url, worker.bytes],
+      ])),
+    );
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.addedNodes) {
+          if (node instanceof HTMLScriptElement) node.dispatchEvent(new Event("load"));
+        }
+      }
+    });
+    observer.observe(document.body, { childList: true });
+
+    await startProtectedApp(manifestOf([entry.asset, worker.asset]));
+    observer.disconnect();
+
+    const url = (window as unknown as Record<string, unknown>)
+      .__LATEXRENDERER_COMPILER_WORKER_URL__;
+    expect(String(url)).toMatch(/^blob:/);
+    expect(String(url)).not.toContain("storage.example.test");
+  });
 });
 
 describe("stopProtectedApp", () => {
@@ -205,6 +234,7 @@ describe("stopProtectedApp", () => {
     const w = window as unknown as Record<string, unknown>;
     expect(w.__LATEXRENDERER_BUILD__).toBeUndefined();
     expect(w.__LATEXRENDERER_WORKER_URL__).toBeUndefined();
+    expect(w.__LATEXRENDERER_COMPILER_WORKER_URL__).toBeUndefined();
     vi.unstubAllGlobals();
   });
 });

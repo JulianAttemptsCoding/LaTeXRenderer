@@ -181,6 +181,7 @@ const main = async () => {
     entry: manifest.entry,
     styles: manifest.styles ?? [],
     worker: manifest.worker ?? null,
+    compilerWorker: manifest.compilerWorker ?? null,
     assets,
   };
   writeFileSync(join(LOCKED, "envelope.json"), JSON.stringify(envelope, null, 2) + "\n");
