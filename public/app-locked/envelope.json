@@ -6,17 +6,18 @@
     "name": "PBKDF2",
     "hash": "SHA-256",
     "iterations": 310000,
-    "saltB64": "k+oeQXxZwwbN/n3T27fhfuauyJmTtt4LKamP0MGe4TY="
+    "saltB64": "R3me0VGxr1V3NuVYRjvH++WSd9q7Guc8f+l/49cB1MY="
   },
   "ivBytes": 12,
   "tagBytes": 16,
-  "buildId": "0d518618394b13db",
+  "buildId": "20638c6329bca651",
   "entry": "app.js",
   "styles": [
     "app.css"
   ],
   "worker": "editor.worker.js",
   "compilerWorker": "compiler.worker.js",
+  "xzWasm": "xzwasm.js",
   "assets": [
     {
       "path": "app.css",
@@ -29,10 +30,10 @@
     {
       "path": "app.js",
       "file": "app.js.enc",
-      "sha256": "f27baaf39d623e502321e37fe8cd2fe2da4751fa08c6957bc117a47f29c045d7",
-      "size": 2920936,
+      "sha256": "9b208aca96ed3009a3c01222e42a9ce81bdaa924bba67c7f3d8d9861e4ea6519",
+      "size": 2921158,
       "contentType": "text/javascript",
-      "encryptedSize": 2920964
+      "encryptedSize": 2921186
     },
     {
       "path": "compiler.worker.js",
@@ -49,6 +50,14 @@
       "size": 231482,
       "contentType": "text/javascript",
       "encryptedSize": 231510
+    },
+    {
+      "path": "xzwasm.js",
+      "file": "xzwasm.js.enc",
+      "sha256": "fb7e7a0e39df438276f290dd15865734d1b81674084cfa36ef0b77042391df9b",
+      "size": 19832,
+      "contentType": "text/javascript",
+      "encryptedSize": 19860
     }
   ]
 }
