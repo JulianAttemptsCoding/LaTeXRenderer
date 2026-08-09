@@ -38,6 +38,7 @@ function manifestOf(assets: ManifestAsset[], entry = "app.js"): ProtectedManifes
     styles: assets.filter((a) => a.path.endsWith(".css")).map((a) => a.path),
     worker: assets.find((a) => a.path === "editor.worker.js")?.path ?? null,
     compilerWorker: assets.find((a) => a.path === "compiler.worker.js")?.path ?? null,
+    xzWasm: assets.find((a) => a.path === "xzwasm.js")?.path ?? null,
     expiresInSeconds: 300,
     grantExpiresAt: new Date(Date.now() + 3_600_000).toISOString(),
     assets,
@@ -211,6 +212,32 @@ describe("startProtectedApp", () => {
     expect(String(url)).toMatch(/^blob:/);
     expect(String(url)).not.toContain("storage.example.test");
   });
+
+  it("exposes the verified XZ package decoder", async () => {
+    const entry = await asset("app.js", "1;");
+    const decoder = await asset("xzwasm.js", "self.xzwasm={};");
+    vi.stubGlobal(
+      "fetch",
+      stubFetch(new Map([
+        [entry.asset.url, entry.bytes],
+        [decoder.asset.url, decoder.bytes],
+      ])),
+    );
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.addedNodes) {
+          if (node instanceof HTMLScriptElement) node.dispatchEvent(new Event("load"));
+        }
+      }
+    });
+    observer.observe(document.body, { childList: true });
+
+    await startProtectedApp(manifestOf([entry.asset, decoder.asset]));
+    observer.disconnect();
+
+    expect(String((window as unknown as Record<string, unknown>).__LATEXRENDERER_XZ_WASM_URL__))
+      .toMatch(/^blob:/);
+  });
 });
 
 describe("stopProtectedApp", () => {
@@ -235,6 +262,7 @@ describe("stopProtectedApp", () => {
     expect(w.__LATEXRENDERER_BUILD__).toBeUndefined();
     expect(w.__LATEXRENDERER_WORKER_URL__).toBeUndefined();
     expect(w.__LATEXRENDERER_COMPILER_WORKER_URL__).toBeUndefined();
+    expect(w.__LATEXRENDERER_XZ_WASM_URL__).toBeUndefined();
     vi.unstubAllGlobals();
   });
 });

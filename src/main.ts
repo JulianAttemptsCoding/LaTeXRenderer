@@ -496,6 +496,10 @@ async function handOffToApp(manifest: ProtectedManifest): Promise<void> {
   const w = window as unknown as Record<string, unknown>;
   w.__LATEXRENDERER_GOOGLE_CLIENT_ID__ = config.googleClientId;
   w.__LATEXRENDERER_MODE__ = config.mode;
+  if (config.supabaseUrl) {
+    w.__LATEXRENDERER_TEX_PACKAGE_PROXY__ =
+      `${config.supabaseUrl}/functions/v1/texlive-package`;
+  }
   const profile = storedSession();
   if (profile) {
     w.__LATEXRENDERER_ACCOUNT__ = {

@@ -25,7 +25,7 @@ const here = dirname(fileURLToPath(import.meta.url));
  */
 
 const DIST = resolve(here, "../../../texCompiler/app/dist");
-const REQUIRED = ["app.js", "app.css", "editor.worker.js", "compiler.worker.js"];
+const REQUIRED = ["app.js", "app.css", "editor.worker.js", "compiler.worker.js", "xzwasm.js"];
 
 const available = existsSync(DIST) && REQUIRED.every((f) => existsSync(resolve(DIST, f)));
 
@@ -66,6 +66,7 @@ test.describe("the real editor bundle", () => {
           styles: ["app.css"],
           worker: "editor.worker.js",
           compilerWorker: "compiler.worker.js",
+          xzWasm: "xzwasm.js",
           expiresInSeconds: 300,
           grantExpiresAt: state.grantExpiresAt,
           assets,
@@ -111,8 +112,11 @@ test.describe("the real editor bundle", () => {
     // Exercise the real editor surfaces added after the shell handoff. This catches
     // protected-bundle-only regressions that component tests cannot see (IndexedDB,
     // Monaco, responsive fixed panels, and the blob worker all participate here).
-    page.once("dialog", (dialog) => dialog.accept("QA project"));
-    await page.getByRole("button", { name: /new blank project/i }).click();
+    // Use the exact thesis template reported by the user. It includes setspace.sty, a
+    // package intentionally outside Siglum's prebuilt bundle set, so this exercises the
+    // verified XZ decoder and on-demand TeX Live package proxy.
+    page.once("dialog", (dialog) => dialog.accept("QA thesis"));
+    await page.locator(".dashboard-actions select").selectOption("thesis");
     await expect(page.locator("#latexrenderer-root .workspace")).toBeVisible({ timeout: 60_000 });
     await expect(page.locator(".monaco-host")).toBeVisible({ timeout: 60_000 });
 
@@ -149,10 +153,25 @@ test.describe("the real editor bundle", () => {
     );
     expect(String(compilerWorkerUrl)).toMatch(/^blob:/);
 
+    const xzWasmUrl = await page.evaluate(
+      () => (window as unknown as Record<string, unknown>).__LATEXRENDERER_XZ_WASM_URL__,
+    );
+    expect(String(xzWasmUrl)).toMatch(/^blob:/);
+
     // One real TeX Live WebAssembly compile proves this is genuinely install-free, not
     // just UI copy over the old companion requirement. Run once, not again in mobile QA.
     if (testInfo.project.name === "chromium") {
       test.setTimeout(240_000);
+      await page.route(`${SUPABASE_HOST}/functions/v1/texlive-package/api/texlive/setspace`, async (route) => {
+        const response = await fetch(
+          "https://mirrors.ctan.org/systems/texlive/tlnet/archive/setspace.tar.xz",
+        );
+        await route.fulfill({
+          status: response.status,
+          contentType: "application/x-xz",
+          body: Buffer.from(await response.arrayBuffer()),
+        });
+      });
       await page.getByRole("button", { name: "Recompile" }).click();
       await expect(page.locator(".output-status")).toContainText(/Built|Failed/, { timeout: 210_000 });
       if ((await page.locator(".output-status").innerText()).includes("Failed")) {

@@ -36,6 +36,7 @@ export interface ProtectedManifest {
   styles: string[];
   worker: string | null;
   compilerWorker?: string | null;
+  xzWasm?: string | null;
   expiresInSeconds: number;
   grantExpiresAt: string;
   assets: ManifestAsset[];
@@ -57,6 +58,7 @@ export interface LockedEnvelope {
   styles: string[];
   worker: string | null;
   compilerWorker?: string | null;
+  xzWasm?: string | null;
   assets: Array<{
     path: string;
     file: string;
@@ -239,6 +241,7 @@ export async function unlockManifest(
       styles: envelope.styles ?? [],
       worker: envelope.worker ?? null,
       compilerWorker: envelope.compilerWorker ?? null,
+      xzWasm: envelope.xzWasm ?? null,
       expiresInSeconds: 0,
       grantExpiresAt: "",
       assets,
@@ -275,6 +278,7 @@ export async function localManifest(basePath: string): Promise<ProtectedManifest
     styles: string[];
     worker: string | null;
     compilerWorker?: string | null;
+    xzWasm?: string | null;
     assets: Array<{ path: string; sha256: string; size: number; contentType: string }>;
   };
 
@@ -285,6 +289,7 @@ export async function localManifest(basePath: string): Promise<ProtectedManifest
     styles: manifest.styles ?? [],
     worker: manifest.worker ?? null,
     compilerWorker: manifest.compilerWorker ?? null,
+    xzWasm: manifest.xzWasm ?? null,
     expiresInSeconds: 0,
     grantExpiresAt: "",
     assets: manifest.assets.map((asset) => {
@@ -535,7 +540,17 @@ export async function startProtectedApp(
     }
   }
 
-  // 4. Hand the app the base path and build id it needs, then execute the entry bundle.
+  // 4. Verified XZ decoder used only when TeX asks for a package outside the prebuilt
+  //    bundle set. The package archive is data; this is the code that decompresses it.
+  if (manifest.xzWasm) {
+    const bytes = verified.get(manifest.xzWasm);
+    if (bytes) {
+      const xzUrl = objectUrl(bytes, "text/javascript");
+      (window as unknown as Record<string, unknown>).__LATEXRENDERER_XZ_WASM_URL__ = xzUrl;
+    }
+  }
+
+  // 5. Hand the app the base path and build id it needs, then execute the entry bundle.
   (window as unknown as Record<string, unknown>).__LATEXRENDERER_BUILD__ = manifest.buildId;
   (window as unknown as Record<string, unknown>).__LATEXRENDERER_GRANT_EXPIRES__ =
     manifest.grantExpiresAt;
@@ -573,6 +588,7 @@ export async function stopProtectedApp(): Promise<void> {
   const w = window as unknown as Record<string, unknown>;
   delete w.__LATEXRENDERER_WORKER_URL__;
   delete w.__LATEXRENDERER_COMPILER_WORKER_URL__;
+  delete w.__LATEXRENDERER_XZ_WASM_URL__;
   delete w.__LATEXRENDERER_BUILD__;
   delete w.__LATEXRENDERER_GRANT_EXPIRES__;
   delete w.__LATEXRENDERER_REALTIME__;
