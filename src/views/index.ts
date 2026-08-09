@@ -178,8 +178,8 @@ export function passwordView(
     el(
       "p",
       { id: "password-help", class: "muted small" },
-      "This unlocks the editor. The application is stored encrypted and this password is " +
-        "the key — without it there is nothing to run, not merely a check to pass.",
+      "This unlocks the editor. The password is used only for this access attempt and is " +
+        "never saved in this browser.",
     ),
     el(
       "button",
