@@ -66,6 +66,26 @@ export async function signInWithGoogleIdToken(
   return { error: error?.message ?? null };
 }
 
+export async function signInWithEmailPassword(email: string, password: string): Promise<{ error: string | null }> {
+  const { error } = await supabase().auth.signInWithPassword({ email, password });
+  return { error: error?.message ?? null };
+}
+
+export async function signUpWithEmailPassword(email: string, password: string): Promise<{ session: Session | null; error: string | null }> {
+  const { data, error } = await supabase().auth.signUp({ email, password, options: { emailRedirectTo: config.redirectTo } });
+  return { session: data.session, error: error?.message ?? null };
+}
+
+export async function sendPasswordReset(email: string): Promise<{ error: string | null }> {
+  const { error } = await supabase().auth.resetPasswordForEmail(email, { redirectTo: config.redirectTo });
+  return { error: error?.message ?? null };
+}
+
+export async function updatePassword(password: string): Promise<{ error: string | null }> {
+  const { error } = await supabase().auth.updateUser({ password });
+  return { error: error?.message ?? null };
+}
+
 export async function signOut(): Promise<void> {
   await supabase().auth.signOut();
 }

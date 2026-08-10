@@ -98,6 +98,9 @@ export function progressView(message: string, done: number, total: number): HTML
 
 export interface LandingHandlers {
   onSignIn: () => void;
+  onEmailSignIn?: (email: string, password: string) => void;
+  onEmailSignUp?: (email: string, password: string) => void;
+  onEmailReset?: (email: string) => void;
 }
 
 /** The node Google Identity Services renders its own button into, in direct mode. */
@@ -129,6 +132,22 @@ export function landingView(
         "Continue with Google",
       );
 
+  const email = handlers.onEmailSignIn ? el(
+    "details", { class: "email-auth" },
+    el("summary", {}, "Use email and password"),
+    el("form", { onsubmit: (event: Event) => { event.preventDefault(); const form = event.currentTarget as HTMLFormElement; const data = new FormData(form); handlers.onEmailSignIn?.(String(data.get("email") ?? ""), String(data.get("password") ?? "")); } },
+      el("label", { class: "label", for: "account-email" }, "Email"),
+      el("input", { class: "input", id: "account-email", name: "email", type: "email", autocomplete: "email", required: "", maxlength: "254" }),
+      el("label", { class: "label", for: "account-password" }, "Password"),
+      el("input", { class: "input", id: "account-password", name: "password", type: "password", autocomplete: "current-password", required: "", minlength: "8" }),
+      el("div", { class: "row" },
+        el("button", { class: "btn btn-primary", type: "submit" }, "Sign in with email"),
+        el("button", { class: "btn btn-quiet", type: "button", onclick: () => { const emailInput = document.getElementById("account-email") as HTMLInputElement | null; const passwordInput = document.getElementById("account-password") as HTMLInputElement | null; handlers.onEmailSignUp?.(emailInput?.value ?? "", passwordInput?.value ?? ""); } }, "Create account"),
+      ),
+      el("button", { class: "link-button", type: "button", onclick: () => { const emailInput = document.getElementById("account-email") as HTMLInputElement | null; handlers.onEmailReset?.(emailInput?.value ?? ""); } }, "Forgot password?"),
+    ),
+  ) : null;
+
   return shell(
     wordmark(),
     el("h1", {}, "Make LaTeX free and open"),
@@ -141,6 +160,7 @@ export function landingView(
     ),
     error ? el("div", { class: "alert alert-error", role: "alert" }, error) : null,
     button,
+    email,
     el(
       "p",
       { class: "muted small" },
@@ -156,6 +176,11 @@ export function landingView(
       el("li", {}, "No subscription. No trial. No limits."),
     ),
   );
+}
+
+export function passwordRecoveryView(onSubmit: (password: string) => void, error?: string | null): HTMLElement {
+  const input = el("input", { class: "input", id: "new-password", name: "new-password", type: "password", autocomplete: "new-password", minlength: "12", required: "" });
+  return shell(wordmark(), el("h1", {}, "Choose a new password"), el("p", { class: "muted" }, "Use at least 12 characters. This changes only your LaTeXRenderer account password."), error ? el("div", { class: "alert alert-error", role: "alert" }, error) : null, el("form", { onsubmit: (event: Event) => { event.preventDefault(); onSubmit((input as HTMLInputElement).value); } }, el("label", { class: "label", for: "new-password" }, "New password"), input, el("button", { class: "btn btn-primary", type: "submit" }, "Save new password")));
 }
 
 export interface PasswordHandlers {

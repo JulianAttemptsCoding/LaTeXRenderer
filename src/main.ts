@@ -23,6 +23,10 @@ import {
   currentSession,
   signInWithGoogle,
   signInWithGoogleIdToken,
+  signInWithEmailPassword,
+  signUpWithEmailPassword,
+  sendPasswordReset,
+  updatePassword,
   signOut,
   supabase,
 } from "./lib/supabase";
@@ -60,6 +64,7 @@ import {
   lockedOutView,
   notConfiguredView,
   passwordView,
+  passwordRecoveryView,
   progressView,
 } from "./views";
 
@@ -84,7 +89,14 @@ function showLanding(error?: string | null): void {
   const googlePopupFlow = DIRECT || pendingSupabasePassword !== null;
   render(
     landingView(
-      { onSignIn: () => void beginSignIn() },
+      {
+        onSignIn: () => void beginSignIn(),
+        ...(!DIRECT ? {
+          onEmailSignIn: (email: string, password: string) => void beginEmailSignIn(email, password),
+          onEmailSignUp: (email: string, password: string) => void beginEmailSignUp(email, password),
+          onEmailReset: (email: string) => void beginEmailReset(email),
+        } : {}),
+      },
       error,
       { renderGoogleButton: googlePopupFlow },
     ),
@@ -136,6 +148,55 @@ function showLanding(error?: string | null): void {
       if (profile) void afterDirectSignIn(profile);
     });
   }
+}
+
+function validEmailCredentials(email: string, password = ""): string | null {
+  if (!/^\S+@\S+\.\S+$/.test(email.trim())) return "Enter a valid email address.";
+  if (password && password.length < 8) return "Use at least 8 characters for your account password.";
+  return null;
+}
+
+async function beginEmailSignIn(email: string, password: string): Promise<void> {
+  const invalid = validEmailCredentials(email, password);
+  if (invalid) return showLanding(invalid);
+  render(loadingView("Signing in with email"));
+  const result = await signInWithEmailPassword(email.trim(), password);
+  if (result.error) return showLanding(result.error);
+  const sitePassword = pendingSupabasePassword;
+  pendingSupabasePassword = null;
+  if (!sitePassword) return showSupabasePasswordGate(email.trim());
+  await submitPassword(email.trim(), sitePassword);
+}
+
+async function beginEmailSignUp(email: string, password: string): Promise<void> {
+  const invalid = validEmailCredentials(email, password);
+  if (invalid) return showLanding(invalid);
+  render(loadingView("Creating your account"));
+  const result = await signUpWithEmailPassword(email.trim(), password);
+  if (result.error) return showLanding(result.error);
+  if (!result.session) return showLanding("Check your email to confirm the new account, then return and enter the access password again.");
+  const sitePassword = pendingSupabasePassword;
+  pendingSupabasePassword = null;
+  if (!sitePassword) return showSupabasePasswordGate(email.trim());
+  await submitPassword(email.trim(), sitePassword);
+}
+
+async function beginEmailReset(email: string): Promise<void> {
+  const invalid = validEmailCredentials(email);
+  if (invalid) return showLanding(invalid);
+  const result = await sendPasswordReset(email.trim());
+  showLanding(result.error ?? "If that account exists, a password-reset email has been sent.");
+}
+
+function showPasswordRecovery(error?: string | null): void {
+  render(passwordRecoveryView(async (password) => {
+    if (password.length < 12) return showPasswordRecovery("Use at least 12 characters.");
+    render(loadingView("Saving your new password"));
+    const result = await updatePassword(password);
+    if (result.error) return showPasswordRecovery(result.error);
+    const session = await currentSession();
+    showSupabasePasswordGate(session?.user.email ?? null, { error: "Account password updated. Enter the site access password to continue." });
+  }, error));
 }
 
 /**
@@ -733,6 +794,7 @@ async function boot(): Promise<void> {
 // React to sign-out happening in another tab.
 if (!DIRECT) {
   supabase().auth.onAuthStateChange((event, session) => {
+    if (event === "PASSWORD_RECOVERY") showPasswordRecovery();
     if (event === "SIGNED_OUT" && appRunning) location.replace(config.basePath);
     if (event === "TOKEN_REFRESHED" && session && appRunning) {
       const globals = window as unknown as Record<string, unknown>;

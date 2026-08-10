@@ -205,6 +205,12 @@ p {
   border-color: transparent;
 }
 
+.email-auth { width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: .75rem; }
+.email-auth summary { cursor: pointer; font-weight: 600; }
+.email-auth form { display: grid; gap: .55rem; margin-top: .75rem; }
+.email-auth .row { display: flex; flex-wrap: wrap; gap: .5rem; }
+.link-button { width: fit-content; padding: 0; border: 0; background: transparent; color: var(--accent); text-decoration: underline; cursor: pointer; }
+
 .signed-in-as {
   font-size: 0.85rem;
   color: var(--fg-muted);
