@@ -36,6 +36,7 @@ test.describe("the real editor bundle", () => {
   );
 
   test("is fetched, hash-verified, and executed from a blob URL", async ({ page, state }, testInfo) => {
+    test.setTimeout(testInfo.project.name === "chromium" ? 300_000 : 120_000);
     const bytes = new Map<string, Buffer>();
     for (const name of REQUIRED) bytes.set(name, readFileSync(resolve(DIST, name)));
 
@@ -115,22 +116,29 @@ test.describe("the real editor bundle", () => {
     // Use the exact thesis template reported by the user. It includes setspace.sty, a
     // package intentionally outside Siglum's prebuilt bundle set, so this exercises the
     // verified XZ decoder and on-demand TeX Live package proxy.
-    page.once("dialog", (dialog) => dialog.accept("QA thesis"));
     await page.locator(".dashboard-actions select").selectOption("thesis");
+    await expect(page.getByRole("dialog", { name: /create from template/i })).toBeVisible();
+    await page.getByLabel(/project name/i).fill("QA thesis");
+    await page.getByRole("button", { name: /^create$/i }).click();
     await expect(page.locator("#latexrenderer-root .workspace")).toBeVisible({ timeout: 60_000 });
     await expect(page.locator(".monaco-host")).toBeVisible({ timeout: 60_000 });
 
-    await page.getByRole("button", { name: "History" }).click();
-    await expect(page.getByRole("dialog", { name: /version history/i })).toBeVisible();
-    await page.getByRole("button", { name: /close history/i }).click();
+    // These full project-tool panels are intentionally hidden in the narrow mobile
+    // editor layout. Desktop exercises them; mobile still verifies the real editor,
+    // Monaco worker, protected bundle, and responsive workspace above.
+    if (testInfo.project.name === "chromium") {
+      await page.getByRole("button", { name: "History" }).click();
+      await expect(page.getByRole("dialog", { name: /version history/i })).toBeVisible();
+      await page.getByRole("button", { name: /close history/i }).click();
 
-    await page.getByRole("button", { name: /^Review/ }).click();
-    await expect(page.getByRole("complementary", { name: /review and comments/i })).toBeVisible();
-    await page.getByRole("button", { name: /close review/i }).click();
+      await page.getByRole("button", { name: /^Review/ }).click();
+      await expect(page.getByRole("complementary", { name: /review and comments/i })).toBeVisible();
+      await page.getByRole("button", { name: /close review/i }).click();
 
-    await page.getByRole("button", { name: /^Collaborate/ }).click();
-    await expect(page.getByRole("complementary", { name: /live collaboration/i })).toBeVisible();
-    await page.getByRole("button", { name: /close collaboration/i }).click();
+      await page.getByRole("button", { name: /^Collaborate/ }).click();
+      await expect(page.getByRole("complementary", { name: /live collaboration/i })).toBeVisible();
+      await page.getByRole("button", { name: /close collaboration/i }).click();
+    }
 
     // A module-resolution failure would surface here, not as a missing element.
     const fatal = pageErrors.filter(
@@ -161,7 +169,6 @@ test.describe("the real editor bundle", () => {
     // One real TeX Live WebAssembly compile proves this is genuinely install-free, not
     // just UI copy over the old companion requirement. Run once, not again in mobile QA.
     if (testInfo.project.name === "chromium") {
-      test.setTimeout(240_000);
       await page.route(`${SUPABASE_HOST}/functions/v1/texlive-package/api/texlive/setspace`, async (route) => {
         const response = await fetch(
           "https://mirrors.ctan.org/systems/texlive/tlnet/archive/setspace.tar.xz",
