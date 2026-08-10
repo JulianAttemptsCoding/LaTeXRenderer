@@ -32,6 +32,22 @@ test.describe("gate cannot be bypassed from the browser", () => {
     expect(persisted.url).not.toContain(encodeURIComponent(state.correctPassword));
   });
 
+  test("the Google fallback starts a full-page OAuth redirect", async ({ page, state }) => {
+    await page.goto("./");
+    await page.getByLabel(/access password/i).fill(state.correctPassword);
+    await page.getByRole("button", { name: /unlock/i }).click();
+
+    await page.getByRole("button", { name: /continue with google/i }).click();
+    await expect
+      .poll(() => state.calls.some((path) => path.endsWith("/auth/v1/authorize")))
+      .toBe(true);
+
+    const oauthUrl = new URL(page.url());
+    expect(oauthUrl.pathname).toBe("/auth/v1/authorize");
+    expect(oauthUrl.searchParams.get("provider")).toBe("google");
+    expect(oauthUrl.searchParams.get("redirect_to")).toBe("http://localhost:4173/");
+  });
+
   test("signed in but ungranted, the password form is shown and no bundle is fetched", async ({
     page,
     state,

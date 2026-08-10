@@ -21,6 +21,7 @@ import { config, FUNCTIONS } from "./config";
 import {
   callFunction,
   currentSession,
+  signInWithGoogle,
   signInWithGoogleIdToken,
   signOut,
   supabase,
@@ -190,7 +191,12 @@ function renderOriginHelp(host: HTMLElement, detail?: string): void {
 
 async function beginSignIn(): Promise<void> {
   if (!DIRECT) {
-    showLanding("Use the Google button above to continue securely.");
+    // Google's embedded Identity Services button can be blocked by cross-origin iframe,
+    // tracking-protection, or popup restrictions. Keep a full-page Supabase OAuth route as
+    // the dependable fallback instead of leaving this button as a dead end.
+    render(loadingView("Opening Google sign-in"));
+    const result = await signInWithGoogle();
+    if (result.error) showLanding(result.error);
     return;
   }
 
