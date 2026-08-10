@@ -59,7 +59,9 @@ function themeButton(): HTMLButtonElement {
 
 function shell(...children: Slot[]): HTMLElement {
   try { document.documentElement.dataset.theme = localStorage.getItem("latexrenderer.shell-theme") === "dark" ? "dark" : "light"; } catch { document.documentElement.dataset.theme = "light"; }
-  return el("div", { class: "shell" }, themeButton(), el("main", { class: "card" }, ...children), footer());
+  // Keep the primary form first in keyboard order. The fixed-position theme control is
+  // visually top-right but follows the form semantically.
+  return el("div", { class: "shell" }, el("main", { class: "card" }, ...children), themeButton(), footer());
 }
 
 // ---------------------------------------------------------------------------
