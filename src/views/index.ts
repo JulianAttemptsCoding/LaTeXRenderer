@@ -43,8 +43,23 @@ function footer(): HTMLElement {
 
 type Slot = Node | string | null | undefined | false;
 
+function themeButton(): HTMLButtonElement {
+  const current = document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+  const button = el("button", { class: "shell-theme", type: "button", title: `Use ${current === "light" ? "dark" : "light"} mode`, "aria-label": `Use ${current === "light" ? "dark" : "light"} mode` }, current === "light" ? "☾" : "☀");
+  button.addEventListener("click", () => {
+    const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+    document.documentElement.dataset.theme = next;
+    button.textContent = next === "light" ? "☾" : "☀";
+    button.title = `Use ${next === "light" ? "dark" : "light"} mode`;
+    button.setAttribute("aria-label", button.title);
+    try { localStorage.setItem("latexrenderer.shell-theme", next); } catch { /* session-only */ }
+  });
+  return button;
+}
+
 function shell(...children: Slot[]): HTMLElement {
-  return el("div", { class: "shell" }, el("main", { class: "card" }, ...children), footer());
+  try { document.documentElement.dataset.theme = localStorage.getItem("latexrenderer.shell-theme") === "dark" ? "dark" : "light"; } catch { document.documentElement.dataset.theme = "light"; }
+  return el("div", { class: "shell" }, themeButton(), el("main", { class: "card" }, ...children), footer());
 }
 
 // ---------------------------------------------------------------------------

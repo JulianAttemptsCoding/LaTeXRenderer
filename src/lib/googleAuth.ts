@@ -246,7 +246,7 @@ export async function renderSignInButton(
   pending = onResult;
   window.google?.accounts?.id?.renderButton(parent, {
     type: "standard",
-    theme: window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "filled_black" : "outline",
+    theme: document.documentElement.dataset.theme === "dark" ? "filled_black" : "outline",
     size: "large",
     text: "continue_with",
     shape: "pill",

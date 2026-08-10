@@ -20,8 +20,7 @@
   --font-mono: ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
+:root[data-theme="dark"] {
     --bg: #14140f;
     --bg-card: #1c1c18;
     --fg: #ececE6;
@@ -34,7 +33,6 @@
     --danger-border: #7f1d1d;
     --danger-fg: #fca5a5;
     --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.35);
-  }
 }
 
 *,
@@ -68,6 +66,8 @@ body {
   gap: 1.5rem;
   padding: 2rem 1rem;
 }
+
+.shell-theme { position: fixed; top: 14px; right: 14px; width: 40px; height: 40px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg-card); color: var(--fg); cursor: pointer; font-size: 18px; box-shadow: var(--shadow); }
 
 .card {
   width: 100%;

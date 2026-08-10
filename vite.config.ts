@@ -41,13 +41,10 @@ const NOT_FOUND_HTML = `<!doctype html>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="light dark" />
+    <meta name="color-scheme" content="light" />
     <title>Page not found — LaTeXRenderer</title>
     <style>
-      :root { color-scheme: light dark; --fg: #1a1a18; --muted: #6b6b66; --bg: #f7f7f5; --accent: #1d4ed8; }
-      @media (prefers-color-scheme: dark) {
-        :root { --fg: #ececE6; --muted: #9a9a92; --bg: #14140f; --accent: #60a5fa; }
-      }
+      :root { color-scheme: light; --fg: #1a1a18; --muted: #6b6b66; --bg: #f7f7f5; --accent: #1d4ed8; }
       body {
         margin: 0; min-height: 100dvh; display: grid; place-items: center; padding: 2rem;
         background: var(--bg); color: var(--fg);
