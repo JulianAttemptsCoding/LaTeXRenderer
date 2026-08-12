@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { expect, signIn, test } from "./fixtures";
 import { SUPABASE_HOST } from "./fixtures";
 import type { Page } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 
 // package.json declares "type": "module", so __dirname does not exist here.
 const here = dirname(fileURLToPath(import.meta.url));
@@ -124,6 +125,10 @@ test.describe("the real editor bundle", () => {
 
     // The dashboard is the first thing an authorised user should see.
     await expect(page.getByRole("button", { name: /new blank project/i })).toBeVisible();
+    const dashboardAccessibility = await new AxeBuilder({ page }).analyze();
+    expect(dashboardAccessibility.violations.filter(
+      (violation) => violation.impact === "serious" || violation.impact === "critical",
+    )).toEqual([]);
     await captureUi(page, testInfo.project.name, "dashboard-light");
 
     // Exercise the real editor surfaces added after the shell handoff. This catches
@@ -140,6 +145,12 @@ test.describe("the real editor bundle", () => {
     await page.getByRole("button", { name: /^create$/i }).click();
     await expect(page.locator("#latexrenderer-root .workspace")).toBeVisible({ timeout: 60_000 });
     await expect(page.locator(".monaco-host")).toBeVisible({ timeout: 60_000 });
+    const editorAccessibility = await new AxeBuilder({ page })
+      .exclude(".monaco-editor")
+      .analyze();
+    expect(editorAccessibility.violations.filter(
+      (violation) => violation.impact === "serious" || violation.impact === "critical",
+    )).toEqual([]);
     await captureUi(page, testInfo.project.name, "editor-light");
 
     if (process.env.UI_AUDIT === "1") {
@@ -190,6 +201,22 @@ test.describe("the real editor bundle", () => {
       await page.getByRole("button", { name: "Settings" }).first().click();
       await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
       await captureUi(page, testInfo.project.name, "settings-editor-light");
+
+      // Switch through both complete Monaco keymap integrations. The visible status
+      // channel proves the extension initialized, while the footer proves the setting
+      // survived the modal lifecycle.
+      await page.getByLabel("Keyboard mode").selectOption("vim");
+      await page.getByRole("button", { name: "Close" }).click();
+      await expect(page.locator(".statusbar")).toContainText("vim keys");
+      await expect(page.locator(".keymap-status")).not.toBeEmpty();
+
+      await page.getByRole("button", { name: "Settings" }).first().click();
+      await page.getByLabel("Keyboard mode").selectOption("emacs");
+      await page.getByRole("button", { name: "Close" }).click();
+      await expect(page.locator(".statusbar")).toContainText("emacs keys");
+
+      await page.getByRole("button", { name: "Settings" }).first().click();
+      await page.getByLabel("Keyboard mode").selectOption("default");
       if (process.env.UI_AUDIT === "1") {
         await page.getByRole("button", { name: "Compiler" }).click();
         await captureUi(page, testInfo.project.name, "settings-compiler-light");
@@ -199,6 +226,7 @@ test.describe("the real editor bundle", () => {
         await captureUi(page, testInfo.project.name, "settings-data-light");
       }
       await page.getByRole("button", { name: "Close" }).click();
+      await expect(page.locator(".statusbar")).toContainText("Standard keys");
 
       if (process.env.UI_AUDIT === "1") {
         await page.getByRole("button", { name: /use dark mode/i }).click();
@@ -277,6 +305,11 @@ test.describe("the real editor bundle", () => {
         console.log(`XeLaTeX browser compiler log:\n${await page.locator("pre.log").innerText()}`);
       }
       await expect(page.locator(".output-status")).toContainText("Built");
+
+      // Siglum's free browser runtime currently ships pdfTeX and XeTeX only. LuaLaTeX is
+      // exposed after a user deliberately connects the optional local helper; never show
+      // a browser option that silently launches the wrong runtime.
+      await expect(page.locator('select[title="TeX engine"] option[value="lualatex"]')).toHaveCount(0);
     }
 
     console.log(`console errors during load: ${consoleErrors.length}${consoleErrors.length ? ` — ${consoleErrors.join(" | ")}` : ""}`);
