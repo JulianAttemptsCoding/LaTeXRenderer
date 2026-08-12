@@ -6,11 +6,11 @@
     "name": "PBKDF2",
     "hash": "SHA-256",
     "iterations": 310000,
-    "saltB64": "R3me0VGxr1V3NuVYRjvH++WSd9q7Guc8f+l/49cB1MY="
+    "saltB64": "R6sW0T3Gp0DFEfDANL+AIZaOJLG3su19QItuuw8f6eg="
   },
   "ivBytes": 12,
   "tagBytes": 16,
-  "buildId": "20638c6329bca651",
+  "buildId": "5f8204705a9ba3eb",
   "entry": "app.js",
   "styles": [
     "app.css"
@@ -18,22 +18,23 @@
   "worker": "editor.worker.js",
   "compilerWorker": "compiler.worker.js",
   "xzWasm": "xzwasm.js",
+  "pdfWorker": "pdf.worker.mjs",
   "assets": [
     {
       "path": "app.css",
       "file": "app.css.enc",
-      "sha256": "f8d8e34ce66c54cdc6a36a76429221f0d6f323c36e19fed78eb34388e715323e",
-      "size": 80253,
+      "sha256": "363b7850d10f88a882eb3b927f229fb2743b82018000892bcdbfb5168cbd469b",
+      "size": 168771,
       "contentType": "text/css",
-      "encryptedSize": 80281
+      "encryptedSize": 168799
     },
     {
       "path": "app.js",
       "file": "app.js.enc",
-      "sha256": "9b208aca96ed3009a3c01222e42a9ce81bdaa924bba67c7f3d8d9861e4ea6519",
-      "size": 2921158,
+      "sha256": "5cb34e0adf14515d8c8fee465d980764c0123c6199dcd0cec587e72c68cf5e7f",
+      "size": 5853557,
       "contentType": "text/javascript",
-      "encryptedSize": 2921186
+      "encryptedSize": 5853585
     },
     {
       "path": "compiler.worker.js",
@@ -50,6 +51,14 @@
       "size": 231482,
       "contentType": "text/javascript",
       "encryptedSize": 231510
+    },
+    {
+      "path": "pdf.worker.mjs",
+      "file": "pdf.worker.mjs.enc",
+      "sha256": "0613f41490dd6aaceed7a93fbbd38c85e6d6aa60474b6588c6e7709cfbe18cb3",
+      "size": 1262398,
+      "contentType": "text/javascript",
+      "encryptedSize": 1262426
     },
     {
       "path": "xzwasm.js",

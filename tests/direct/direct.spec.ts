@@ -260,8 +260,11 @@ test.describe("direct mode", () => {
       await unlock(page, PASSWORD);
       await expect(page.locator("#latexrenderer-root .dashboard")).toBeVisible({ timeout: 90_000 });
 
-      page.once("dialog", (dialog) => void dialog.accept("QA smoke project"));
       await page.getByRole("button", { name: /new blank project/i }).click();
+      const createDialog = page.getByRole("dialog", { name: /create a blank project/i });
+      await expect(createDialog).toBeVisible();
+      await createDialog.getByLabel(/project name/i).fill("QA smoke project");
+      await createDialog.getByRole("button", { name: /^create$/i }).click();
 
       await expect(page.locator("#latexrenderer-root .workspace")).toBeVisible({ timeout: 30_000 });
       await expect(page.locator(".topbar .project-name")).toHaveText("QA smoke project");
