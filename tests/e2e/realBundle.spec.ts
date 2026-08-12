@@ -138,6 +138,11 @@ test.describe("the real editor bundle", () => {
     // package intentionally outside Siglum's prebuilt bundle set, so this exercises the
     // verified XZ decoder and on-demand TeX Live package proxy.
     await page.getByRole("button", { name: /browse templates/i }).click();
+    await expect(page.getByRole("dialog", { name: /template gallery/i }).getByRole("searchbox")).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: /template gallery/i })).toBeHidden();
+    await expect(page.getByRole("button", { name: /browse templates/i })).toBeFocused();
+    await page.getByRole("button", { name: /browse templates/i }).click();
     await captureUi(page, testInfo.project.name, "templates-light");
     await page.getByRole("heading", { name: /thesis or dissertation/i }).locator("..").getByRole("button", { name: /use template/i }).click();
     await expect(page.getByRole("dialog", { name: /create from template/i })).toBeVisible();
@@ -234,11 +239,32 @@ test.describe("the real editor bundle", () => {
         await page.getByRole("button", { name: /use light mode/i }).click();
       }
     } else if (process.env.UI_AUDIT === "1") {
+      await page.getByRole("button", { name: "Project tools" }).click();
+      await expect(page.getByRole("dialog", { name: "Project tools" })).toBeVisible();
+      const mobileToolsAccessibility = await new AxeBuilder({ page })
+        .exclude(".monaco-editor")
+        .analyze();
+      expect(mobileToolsAccessibility.violations.filter(
+        (violation) => violation.impact === "serious" || violation.impact === "critical",
+      )).toEqual([]);
+      await captureUi(page, testInfo.project.name, "project-tools-light");
+      await page.getByRole("dialog", { name: "Project tools" }).getByRole("button", { name: "Help" }).click();
+      await expect(page.locator(".help-panel")).toBeVisible();
+      await captureUi(page, testInfo.project.name, "help-light");
+      await page.getByRole("button", { name: /close help/i }).click();
       await page.getByRole("button", { name: "Files" }).click();
       await captureUi(page, testInfo.project.name, "files-light");
       await page.getByRole("button", { name: "PDF" }).click();
       await captureUi(page, testInfo.project.name, "output-light");
       await page.getByRole("button", { name: "Editor" }).click();
+      await page.setViewportSize({ width: 320, height: 568 });
+      await expect(page.getByRole("button", { name: "Recompile" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Project tools" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Settings" })).toBeVisible();
+      await expect(page.locator('select[aria-label="TeX engine"]')).toBeVisible();
+      const bodyOverflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      expect(bodyOverflow).toBeLessThanOrEqual(1);
+      await captureUi(page, testInfo.project.name, "compact-editor-light");
     }
 
     // A module-resolution failure would surface here, not as a missing element.
