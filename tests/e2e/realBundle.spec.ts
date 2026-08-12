@@ -1,9 +1,10 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, signIn, test } from "./fixtures";
 import { SUPABASE_HOST } from "./fixtures";
+import type { Page } from "@playwright/test";
 
 // package.json declares "type": "module", so __dirname does not exist here.
 const here = dirname(fileURLToPath(import.meta.url));
@@ -28,6 +29,16 @@ const DIST = resolve(here, "../../../texCompiler/app/dist");
 const REQUIRED = ["app.js", "app.css", "editor.worker.js", "compiler.worker.js", "xzwasm.js", "pdf.worker.mjs"];
 
 const available = existsSync(DIST) && REQUIRED.every((f) => existsSync(resolve(DIST, f)));
+
+async function captureUi(page: Page, projectName: string, surface: string): Promise<void> {
+  if (process.env.UI_AUDIT !== "1") return;
+  const directory = resolve(here, "../../test-results/ui-audit");
+  mkdirSync(directory, { recursive: true });
+  await page.screenshot({
+    path: resolve(directory, `${projectName}-${surface}.png`),
+    animations: "disabled",
+  });
+}
 
 test.describe("the real editor bundle", () => {
   test.skip(
@@ -113,6 +124,7 @@ test.describe("the real editor bundle", () => {
 
     // The dashboard is the first thing an authorised user should see.
     await expect(page.getByRole("button", { name: /new blank project/i })).toBeVisible();
+    await captureUi(page, testInfo.project.name, "dashboard-light");
 
     // Exercise the real editor surfaces added after the shell handoff. This catches
     // protected-bundle-only regressions that component tests cannot see (IndexedDB,
@@ -121,12 +133,21 @@ test.describe("the real editor bundle", () => {
     // package intentionally outside Siglum's prebuilt bundle set, so this exercises the
     // verified XZ decoder and on-demand TeX Live package proxy.
     await page.getByRole("button", { name: /browse templates/i }).click();
+    await captureUi(page, testInfo.project.name, "templates-light");
     await page.getByRole("heading", { name: /thesis or dissertation/i }).locator("..").getByRole("button", { name: /use template/i }).click();
     await expect(page.getByRole("dialog", { name: /create from template/i })).toBeVisible();
     await page.getByLabel(/project name/i).fill("QA thesis");
     await page.getByRole("button", { name: /^create$/i }).click();
     await expect(page.locator("#latexrenderer-root .workspace")).toBeVisible({ timeout: 60_000 });
     await expect(page.locator(".monaco-host")).toBeVisible({ timeout: 60_000 });
+    await captureUi(page, testInfo.project.name, "editor-light");
+
+    if (process.env.UI_AUDIT === "1") {
+      await page.getByRole("button", { name: "Visual" }).click();
+      await expect(page.locator(".visual-editor")).toBeVisible();
+      await captureUi(page, testInfo.project.name, "visual-editor-light");
+      await page.getByRole("button", { name: "Code" }).click();
+    }
 
     // These full project-tool panels are intentionally hidden in the narrow mobile
     // editor layout. Desktop exercises them; mobile still verifies the real editor,
@@ -134,17 +155,62 @@ test.describe("the real editor bundle", () => {
     if (testInfo.project.name === "chromium") {
       await page.getByRole("button", { name: "History" }).click();
       await expect(page.getByRole("dialog", { name: /version history/i })).toBeVisible();
+      await captureUi(page, testInfo.project.name, "history-light");
       await page.getByRole("button", { name: /close history/i }).click();
+
+      if (process.env.UI_AUDIT === "1") {
+        await page.getByRole("button", { name: /search project/i }).click();
+        await expect(page.getByRole("dialog", { name: /search the project/i })).toBeVisible();
+        await captureUi(page, testInfo.project.name, "search-light");
+        await page.getByRole("dialog", { name: /search the project/i }).getByRole("button", { name: "Close" }).click();
+
+        await page.getByRole("button", { name: "Symbols" }).click();
+        await expect(page.getByRole("dialog", { name: /symbol palette/i })).toBeVisible();
+        await captureUi(page, testInfo.project.name, "symbols-light");
+        await page.getByRole("dialog", { name: /symbol palette/i }).getByRole("button", { name: "Close" }).click();
+
+        await page.getByRole("button", { name: "Help" }).click();
+        await expect(page.locator(".help-panel")).toBeVisible();
+        await captureUi(page, testInfo.project.name, "help-light");
+        await page.getByRole("button", { name: /close help/i }).click();
+      }
 
       await page.getByRole("button", { name: /^Review/ }).click();
       await expect(page.getByRole("complementary", { name: /review and comments/i })).toBeVisible();
+      await captureUi(page, testInfo.project.name, "review-light");
       await page.getByRole("button", { name: /close review/i }).click();
 
       await page.getByRole("button", { name: /^Collaborate/ }).click();
       await expect(
         page.getByRole("complementary", { name: /project sharing and collaboration/i }),
       ).toBeVisible();
+      await captureUi(page, testInfo.project.name, "sharing-light");
       await page.getByRole("button", { name: /close collaboration/i }).click();
+
+      await page.getByRole("button", { name: "Settings" }).first().click();
+      await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
+      await captureUi(page, testInfo.project.name, "settings-editor-light");
+      if (process.env.UI_AUDIT === "1") {
+        await page.getByRole("button", { name: "Compiler" }).click();
+        await captureUi(page, testInfo.project.name, "settings-compiler-light");
+        await page.getByRole("button", { name: "Connections" }).click();
+        await captureUi(page, testInfo.project.name, "settings-connections-light");
+        await page.getByRole("button", { name: /data & account/i }).click();
+        await captureUi(page, testInfo.project.name, "settings-data-light");
+      }
+      await page.getByRole("button", { name: "Close" }).click();
+
+      if (process.env.UI_AUDIT === "1") {
+        await page.getByRole("button", { name: /use dark mode/i }).click();
+        await captureUi(page, testInfo.project.name, "editor-dark");
+        await page.getByRole("button", { name: /use light mode/i }).click();
+      }
+    } else if (process.env.UI_AUDIT === "1") {
+      await page.getByRole("button", { name: "Files" }).click();
+      await captureUi(page, testInfo.project.name, "files-light");
+      await page.getByRole("button", { name: "PDF" }).click();
+      await captureUi(page, testInfo.project.name, "output-light");
+      await page.getByRole("button", { name: "Editor" }).click();
     }
 
     // A module-resolution failure would surface here, not as a missing element.
@@ -200,6 +266,7 @@ test.describe("the real editor bundle", () => {
       await expect(page.locator(".output-status")).toContainText("Built");
       await expect(page.getByRole("img", { name: /PDF page 1/i })).toBeVisible();
       await expect(page.locator(".output-status")).toContainText("Browser TeX Live 2025");
+      await captureUi(page, testInfo.project.name, "pdf-light");
 
       // The reported production failure used XeLaTeX, so exercise that exact engine too.
       await page.locator('select[title="TeX engine"]').selectOption("xelatex");

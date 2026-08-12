@@ -1,4 +1,14 @@
 import { expect, signIn, test } from "./fixtures";
+import { mkdirSync } from "node:fs";
+import { resolve } from "node:path";
+import type { Page } from "@playwright/test";
+
+async function captureShell(page: Page, surface: string): Promise<void> {
+  if (process.env.UI_AUDIT !== "1") return;
+  const directory = resolve("test-results/ui-audit");
+  mkdirSync(directory, { recursive: true });
+  await page.screenshot({ path: resolve(directory, `shell-${surface}.png`), animations: "disabled" });
+}
 
 /**
  * The security suite.
@@ -15,6 +25,7 @@ test.describe("gate cannot be bypassed from the browser", () => {
     await expect(page.getByLabel(/access password/i)).toBeVisible();
     await expect(page.getByRole("button", { name: /continue with google/i })).toHaveCount(0);
     await expect(page.locator("#editor-root")).toHaveCount(0);
+    await captureShell(page, "password-desktop");
   });
 
   test("the pre-sign-in password remains in memory only", async ({ page, state }) => {
@@ -22,6 +33,7 @@ test.describe("gate cannot be bypassed from the browser", () => {
     await page.getByLabel(/access password/i).fill(state.correctPassword);
     await page.getByRole("button", { name: /unlock/i }).click();
     await expect(page.getByRole("button", { name: /continue with google/i })).toBeVisible();
+    await captureShell(page, "signin-desktop");
     const persisted = await page.evaluate(() => ({
       local: JSON.stringify(localStorage),
       session: JSON.stringify(sessionStorage),
@@ -401,5 +413,6 @@ test.describe("accessibility and responsiveness", () => {
       () => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
     );
     expect(overflows).toBe(false);
+    await captureShell(page, "password-mobile");
   });
 });

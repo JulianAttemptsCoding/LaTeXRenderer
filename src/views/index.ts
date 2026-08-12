@@ -5,8 +5,11 @@ function wordmark(): HTMLElement {
   return el(
     "div",
     { class: "wordmark" },
-    el("span", { class: "wordmark-mark", "aria-hidden": "true" }, "L"),
-    el("span", { class: "wordmark-text" }, "LaTeXRenderer"),
+    el("span", { class: "wordmark-mark", "aria-hidden": "true" }, "A"),
+    el("span", { class: "wordmark-copy" },
+      el("span", { class: "wordmark-text" }, "LaTeXRenderer"),
+      el("span", { class: "wordmark-tagline" }, "A private, browser-first LaTeX workspace"),
+    ),
   );
 }
 
@@ -150,30 +153,44 @@ export function landingView(
 
   return shell(
     wordmark(),
-    el("h1", {}, "Make LaTeX free and open"),
-    el(
-      "p",
-      { class: "lede" },
-      "Good writing tools should not sit behind a subscription. LaTeXRenderer is a full " +
-        "LaTeX workspace that costs nothing to run and nothing to use — because the " +
-        "editor lives in your browser and the typesetting happens on your own computer.",
-    ),
-    error ? el("div", { class: "alert alert-error", role: "alert" }, error) : null,
-    button,
-    email,
-    el(
-      "p",
-      { class: "muted small" },
-      "We ask Google only for your name, email, and picture. Never your password, " +
-        "and never your files.",
-    ),
-    el(
-      "ul",
-      { class: "feature-list" },
-      el("li", {}, "Write together, in real time"),
-      el("li", {}, "Compile on your machine — nothing is uploaded"),
-      el("li", {}, "Your work stays yours: browser, folder, or your own Drive"),
-      el("li", {}, "No subscription. No trial. No limits."),
+    el("div", { class: "landing-layout" },
+      el("section", { class: "landing-story" },
+        el("span", { class: "shell-eyebrow" }, "Free, secure, and yours"),
+        el("h1", {}, "Make LaTeX free and open"),
+        el(
+          "p",
+          { class: "lede" },
+          "A complete writing and typesetting workspace with no subscription. The editor " +
+            "runs in your browser, and your projects stay under your control.",
+        ),
+        el(
+          "ul",
+          { class: "feature-list" },
+          el("li", {}, "Write together in real time"),
+          el("li", {}, "Compile privately in your browser"),
+          el("li", {}, "Use browser storage, folders, or your Drive"),
+          el("li", {}, "No subscription, trial, or usage limits"),
+        ),
+        el("div", { class: "document-graphic", "aria-hidden": "true" },
+          el("span", { class: "graphic-code" }, "\\begin{document}"),
+          el("span", { class: "graphic-line" }),
+          el("span", { class: "graphic-line graphic-line-short" }),
+          el("span", { class: "graphic-formula" }, "∫ f(x) dx"),
+        ),
+      ),
+      el("section", { class: "auth-panel", "aria-label": "Sign in" },
+        el("div", { class: "auth-icon", "aria-hidden": "true" }, "→"),
+        el("h2", {}, "Open your workspace"),
+        el("p", { class: "muted small" }, "Sign in to continue to your private projects."),
+        error ? el("div", { class: "alert alert-error", role: "alert" }, error) : null,
+        button,
+        email,
+        el(
+          "p",
+          { class: "privacy-note" },
+          "We request only your basic profile. We never receive your Google password or files.",
+        ),
+      ),
     ),
   );
 }
@@ -232,6 +249,8 @@ export function passwordView(
 
   return shell(
     wordmark(),
+    el("div", { class: "access-visual", "aria-hidden": "true" }, el("span", {}, "A"), el("i", {})),
+    el("span", { class: "shell-eyebrow" }, "Protected workspace"),
     el("h1", {}, "Enter the access password"),
     el(
       "p",
@@ -250,7 +269,7 @@ export function passwordView(
     state.error && !state.lockedMinutes
       ? el("div", { class: "alert alert-error", role: "alert" }, state.error)
       : null,
-    form,
+    el("div", { class: "access-form-panel" }, form),
     // Only meaningful once somebody is signed in; before that there is no account to swap.
     email
       ? el(
