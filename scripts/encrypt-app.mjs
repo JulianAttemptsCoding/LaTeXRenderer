@@ -183,6 +183,7 @@ const main = async () => {
     worker: manifest.worker ?? null,
     compilerWorker: manifest.compilerWorker ?? null,
     xzWasm: manifest.xzWasm ?? null,
+    pdfWorker: manifest.pdfWorker ?? null,
     assets,
   };
   writeFileSync(join(LOCKED, "envelope.json"), JSON.stringify(envelope, null, 2) + "\n");

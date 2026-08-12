@@ -25,7 +25,7 @@ const here = dirname(fileURLToPath(import.meta.url));
  */
 
 const DIST = resolve(here, "../../../texCompiler/app/dist");
-const REQUIRED = ["app.js", "app.css", "editor.worker.js", "compiler.worker.js", "xzwasm.js"];
+const REQUIRED = ["app.js", "app.css", "editor.worker.js", "compiler.worker.js", "xzwasm.js", "pdf.worker.mjs"];
 
 const available = existsSync(DIST) && REQUIRED.every((f) => existsSync(resolve(DIST, f)));
 
@@ -68,6 +68,7 @@ test.describe("the real editor bundle", () => {
           worker: "editor.worker.js",
           compilerWorker: "compiler.worker.js",
           xzWasm: "xzwasm.js",
+          pdfWorker: "pdf.worker.mjs",
           expiresInSeconds: 300,
           grantExpiresAt: state.grantExpiresAt,
           assets,
@@ -92,7 +93,10 @@ test.describe("the real editor bundle", () => {
 
     const consoleErrors: string[] = [];
     page.on("console", (message) => {
-      if (message.type() === "error") consoleErrors.push(message.text());
+      if (message.type() === "error") {
+        const source = message.location().url;
+        consoleErrors.push(`${message.text()}${source ? ` (${source})` : ""}`);
+      }
     });
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
@@ -116,7 +120,8 @@ test.describe("the real editor bundle", () => {
     // Use the exact thesis template reported by the user. It includes setspace.sty, a
     // package intentionally outside Siglum's prebuilt bundle set, so this exercises the
     // verified XZ decoder and on-demand TeX Live package proxy.
-    await page.locator(".dashboard-actions select").selectOption("thesis");
+    await page.getByRole("button", { name: /browse templates/i }).click();
+    await page.getByRole("heading", { name: /thesis or dissertation/i }).locator("..").getByRole("button", { name: /use template/i }).click();
     await expect(page.getByRole("dialog", { name: /create from template/i })).toBeVisible();
     await page.getByLabel(/project name/i).fill("QA thesis");
     await page.getByRole("button", { name: /^create$/i }).click();
@@ -136,7 +141,9 @@ test.describe("the real editor bundle", () => {
       await page.getByRole("button", { name: /close review/i }).click();
 
       await page.getByRole("button", { name: /^Collaborate/ }).click();
-      await expect(page.getByRole("complementary", { name: /live collaboration/i })).toBeVisible();
+      await expect(
+        page.getByRole("complementary", { name: /project sharing and collaboration/i }),
+      ).toBeVisible();
       await page.getByRole("button", { name: /close collaboration/i }).click();
     }
 
@@ -166,6 +173,11 @@ test.describe("the real editor bundle", () => {
     );
     expect(String(xzWasmUrl)).toMatch(/^blob:/);
 
+    const pdfWorkerUrl = await page.evaluate(
+      () => (window as unknown as Record<string, unknown>).__LATEXRENDERER_PDF_WORKER_URL__,
+    );
+    expect(String(pdfWorkerUrl)).toMatch(/^blob:/);
+
     // One real TeX Live WebAssembly compile proves this is genuinely install-free, not
     // just UI copy over the old companion requirement. Run once, not again in mobile QA.
     if (testInfo.project.name === "chromium") {
@@ -186,7 +198,7 @@ test.describe("the real editor bundle", () => {
         console.log(`browser compiler log:\n${await page.locator("pre.log").innerText()}`);
       }
       await expect(page.locator(".output-status")).toContainText("Built");
-      await expect(page.locator("iframe.pdf-frame")).toBeVisible();
+      await expect(page.getByRole("img", { name: /PDF page 1/i })).toBeVisible();
       await expect(page.locator(".output-status")).toContainText("Browser TeX Live 2025");
 
       // The reported production failure used XeLaTeX, so exercise that exact engine too.
@@ -201,6 +213,7 @@ test.describe("the real editor bundle", () => {
     }
 
     console.log(`console errors during load: ${consoleErrors.length}${consoleErrors.length ? ` — ${consoleErrors.join(" | ")}` : ""}`);
+    expect(consoleErrors, `console errors: ${consoleErrors.join(" | ")}`).toEqual([]);
   });
 
   test("a single flipped byte in the real bundle stops it executing", async ({ page, state }) => {

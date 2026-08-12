@@ -39,6 +39,7 @@ function manifestOf(assets: ManifestAsset[], entry = "app.js"): ProtectedManifes
     worker: assets.find((a) => a.path === "editor.worker.js")?.path ?? null,
     compilerWorker: assets.find((a) => a.path === "compiler.worker.js")?.path ?? null,
     xzWasm: assets.find((a) => a.path === "xzwasm.js")?.path ?? null,
+    pdfWorker: assets.find((a) => a.path === "pdf.worker.mjs")?.path ?? null,
     expiresInSeconds: 300,
     grantExpiresAt: new Date(Date.now() + 3_600_000).toISOString(),
     assets,
@@ -263,6 +264,7 @@ describe("stopProtectedApp", () => {
     expect(w.__LATEXRENDERER_WORKER_URL__).toBeUndefined();
     expect(w.__LATEXRENDERER_COMPILER_WORKER_URL__).toBeUndefined();
     expect(w.__LATEXRENDERER_XZ_WASM_URL__).toBeUndefined();
+    expect(w.__LATEXRENDERER_PDF_WORKER_URL__).toBeUndefined();
     vi.unstubAllGlobals();
   });
 });

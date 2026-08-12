@@ -37,6 +37,7 @@ export interface ProtectedManifest {
   worker: string | null;
   compilerWorker?: string | null;
   xzWasm?: string | null;
+  pdfWorker?: string | null;
   expiresInSeconds: number;
   grantExpiresAt: string;
   assets: ManifestAsset[];
@@ -59,6 +60,7 @@ export interface LockedEnvelope {
   worker: string | null;
   compilerWorker?: string | null;
   xzWasm?: string | null;
+  pdfWorker?: string | null;
   assets: Array<{
     path: string;
     file: string;
@@ -242,6 +244,7 @@ export async function unlockManifest(
       worker: envelope.worker ?? null,
       compilerWorker: envelope.compilerWorker ?? null,
       xzWasm: envelope.xzWasm ?? null,
+      pdfWorker: envelope.pdfWorker ?? null,
       expiresInSeconds: 0,
       grantExpiresAt: "",
       assets,
@@ -279,6 +282,7 @@ export async function localManifest(basePath: string): Promise<ProtectedManifest
     worker: string | null;
     compilerWorker?: string | null;
     xzWasm?: string | null;
+    pdfWorker?: string | null;
     assets: Array<{ path: string; sha256: string; size: number; contentType: string }>;
   };
 
@@ -290,6 +294,7 @@ export async function localManifest(basePath: string): Promise<ProtectedManifest
     worker: manifest.worker ?? null,
     compilerWorker: manifest.compilerWorker ?? null,
     xzWasm: manifest.xzWasm ?? null,
+    pdfWorker: manifest.pdfWorker ?? null,
     expiresInSeconds: 0,
     grantExpiresAt: "",
     assets: manifest.assets.map((asset) => {
@@ -550,6 +555,16 @@ export async function startProtectedApp(
     }
   }
 
+  // PDF.js runs parsing/rendering in its own verified worker so a document cannot freeze
+  // the editor thread and no unverified CDN script is executed.
+  if (manifest.pdfWorker) {
+    const bytes = verified.get(manifest.pdfWorker);
+    if (bytes) {
+      const pdfWorkerUrl = objectUrl(bytes, "text/javascript");
+      (window as unknown as Record<string, unknown>).__LATEXRENDERER_PDF_WORKER_URL__ = pdfWorkerUrl;
+    }
+  }
+
   // 5. Hand the app the base path and build id it needs, then execute the entry bundle.
   (window as unknown as Record<string, unknown>).__LATEXRENDERER_BUILD__ = manifest.buildId;
   (window as unknown as Record<string, unknown>).__LATEXRENDERER_GRANT_EXPIRES__ =
@@ -589,6 +604,7 @@ export async function stopProtectedApp(): Promise<void> {
   delete w.__LATEXRENDERER_WORKER_URL__;
   delete w.__LATEXRENDERER_COMPILER_WORKER_URL__;
   delete w.__LATEXRENDERER_XZ_WASM_URL__;
+  delete w.__LATEXRENDERER_PDF_WORKER_URL__;
   delete w.__LATEXRENDERER_BUILD__;
   delete w.__LATEXRENDERER_GRANT_EXPIRES__;
   delete w.__LATEXRENDERER_REALTIME__;
