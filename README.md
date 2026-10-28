@@ -13,6 +13,36 @@ password gate.
 
 > Independent LaTeX editor. Not affiliated with or endorsed by Overleaf.
 
+## For reviewers
+
+**What you can verify here.** The interesting engineering in this repo is the security model, and it's
+fully tested:
+
+```bash
+npm install
+npm run test         # 13 unit tests: SHA-256 integrity checks; a tampered, resized or partially
+                     # failing bundle is never executed; teardown removes everything it injected
+npm run typecheck
+```
+
+`tests/e2e/security.spec.ts` (Playwright, Supabase mode) tries the bypasses a curious user would try, and
+asserts each one **grants nothing**:
+
+- deleting the password form in DevTools;
+- editing `localStorage` / `sessionStorage`;
+- firing the shell's own events from the console;
+- requesting the bundle endpoint or a storage object directly;
+- brute-forcing (rate limit after 5 failures);
+- reusing an expired or revoked grant.
+
+**The design principle:** a static site can't keep a secret, so this shell is never trusted.
+Every authorisation decision is made server-side, in Supabase Edge Functions against
+`site_access_grants`. The shell's only job is to refuse to run code whose hashes don't match.
+
+**What you can't see here.** The editor itself, including the in-browser TeX compiler worker, lives in
+the private [`texCompiler`](https://github.com/JulianAttemptsCoding/texCompiler) repository and isn't
+public. The live site is linked above, but it's gated behind sign-in and a shared password.
+
 ---
 
 ## Two modes
